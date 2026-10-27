@@ -21,12 +21,11 @@ npm run dev                  # http://localhost:3000 -> /admin/dashboard
   endpoints go in `src/api/adminV1/`.
 - The base path is `ADMIN_API_URL` in `src/api/adminApiUrl.js`
   (`https://api-dev.techagent.co.in/api/v1`).
-- In development the browser calls `/api/v1/*` on this app and
-  `src/app/api/v1/[...path]/route.js` relays it to that base path (or
-  `ADMIN_API_PROXY_TARGET`, if set), because the backend's CORS list doesn't
-  include localhost. In production
-  the client calls the backend directly unless `NEXT_PUBLIC_ADMIN_API_URL` is set
-  (set it to `/api/v1` to go through the proxy instead).
+- The browser calls `/api/v1/*` on this app (in development and production)
+  and `src/app/api/v1/[...path]/route.js` relays it to that base path (or
+  `ADMIN_API_PROXY_TARGET`, if set), because the backend's CORS list includes
+  neither localhost nor the deployed domain. Set `NEXT_PUBLIC_ADMIN_API_URL`
+  to call a backend directly instead.
 - **Old Laravel API**: `src/api/axiosInstance.js` and `src/api/admin/*`. Only
   the legacy screens use it.
 
