@@ -1,0 +1,495 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================================
+   Dark theme override layer
+   -----------------------------------------------------------------------------
+   The app's components were written with hardcoded light utility classes
+   (bg-white, text-gray-800, border-gray-200, ...) and no `dark:` variants.
+   Rather than editing 100+ component files, this stylesheet remaps the common
+   neutral / pastel utilities when the <html> element has the `.dark` class
+   (toggled by ThemeContext). Every rule is scoped under `.dark` so light mode
+   is completely untouched.
+
+   `!important` is used deliberately so these remaps win over Tailwind's
+   hover:/md:/focus: variants and a few inline styles (e.g. SweetAlert popups).
+   Brand/action colors (bg-blue-600, bg-orange-500, gradients, text-white, ...)
+   are intentionally left alone — they read fine on a dark canvas.
+
+   Palette (slate):
+     canvas      #0f172a   (slate-900)   -> bg-gray-50
+     surface     #1e293b   (slate-800)   -> bg-white
+     elevated    #334155   (slate-700)   -> hovers / bg-gray-100
+     border      #334155   (slate-700)
+     text        #e2e8f0   (slate-200)
+     text-muted  #94a3b8   (slate-400)
+   ========================================================================== */
+
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+/* Smooth the switch without animating layout/transforms */
+html,
+body {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ---------------------------------------------------------------- surfaces */
+.dark .bg-white {
+  background-color: #1e293b !important;
+}
+.dark .bg-gray-50,
+.dark .bg-slate-50 {
+  background-color: #0f172a !important;
+}
+.dark .bg-gray-100,
+.dark .bg-slate-100 {
+  background-color: #334155 !important;
+}
+.dark .bg-gray-200,
+.dark .bg-slate-200 {
+  background-color: #475569 !important;
+}
+.dark .bg-gray-300,
+.dark .bg-slate-300 {
+  background-color: #475569 !important;
+}
+.dark .hover\:bg-gray-200:hover,
+.dark .hover\:bg-gray-300:hover {
+  background-color: #525f73 !important;
+}
+
+/* Hover surfaces (keep interactive feedback in dark mode) */
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-slate-50:hover {
+  background-color: #334155 !important;
+}
+.dark .hover\:bg-gray-100:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: #475569 !important;
+}
+
+/* ----------------------------------------------------------------- text */
+.dark .text-black,
+.dark .text-gray-900,
+.dark .text-gray-800,
+.dark .text-slate-900,
+.dark .text-slate-800 {
+  color: #f1f5f9 !important;
+}
+.dark .text-gray-700,
+.dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+.dark .text-gray-600,
+.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+.dark .text-gray-500,
+.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+.dark .text-gray-400,
+.dark .text-slate-400 {
+  color: #64748b !important;
+}
+/* text-gray-200 / -300 are used on the colored sidebar — leave them alone */
+
+/* ----------------------------------------------------------------- borders */
+.dark .border,
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300,
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #334155 !important;
+}
+.dark .border-t,
+.dark .border-b,
+.dark .border-l,
+.dark .border-r {
+  border-color: #334155 !important;
+}
+.dark .divide-y > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155 !important;
+}
+
+/* ----------------------------------------------------------------- inputs */
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+/* keep checkbox/radio accents visible */
+.dark input[type="checkbox"],
+.dark input[type="radio"] {
+  background-color: transparent !important;
+}
+
+/* table header rows that use bg-gray-50 already handled above */
+.dark table thead {
+  background-color: #0f172a;
+}
+.dark tbody tr:hover {
+  background-color: #1f2a3b;
+}
+
+/* ------------------------------------------- arbitrary (bracket) hex values
+   The forms/tables/modals use a handful of hardcoded hex utilities
+   (e.g. bg-[#F9F9F9], border-[#DDDDDD]) that the generic remaps above can't
+   match. Each value is repeated across many files, so remapping it once here
+   themes every occurrence app-wide. New shared hex values can be added here. */
+
+/* off-white form-section / surface backgrounds -> recessed dark panel */
+.dark .bg-\[\#F9F9F9\],
+.dark .bg-\[\#f9f9f9\],
+.dark .bg-\[\#F9FCFF\],
+.dark .bg-\[\#FAFAFA\],
+.dark .bg-\[\#F5F5F5\] {
+  background-color: #0f172a !important;
+}
+/* explicit white surfaces -> card surface */
+.dark .bg-\[\#FFFFFF\],
+.dark .bg-\[\#ffffff\],
+.dark .bg-\[\#FFF\],
+.dark .bg-\[\#fff\] {
+  background-color: #1e293b !important;
+}
+/* light gray borders used throughout forms/tables */
+.dark .border-\[\#DDDDDD\],
+.dark .border-\[\#dddddd\],
+.dark .border-\[\#D7D7D7\],
+.dark .border-\[\#E3E3E3\],
+.dark .border-\[\#E5E5E5\],
+.dark .border-\[\#EEEEEE\] {
+  border-color: #334155 !important;
+}
+.dark .border-\[\#FFFFFF\] {
+  border-color: #334155 !important;
+}
+/* salary table colored cells -> translucent tints */
+.dark .bg-\[\#d9ead3\] { background-color: rgba(34, 197, 94, 0.18) !important; }
+.dark .bg-\[\#fce5cd\] { background-color: rgba(249, 115, 22, 0.18) !important; }
+
+/* ------------------------------------------- worker landing/home page (HomePage)
+   Its dark navy sections (#0d1b35, #07152f) and brand accents (#FFB703 gold,
+   #3885C9 blue) already read fine on dark. Only the light content sections use
+   arbitrary dark navy text and a light-blue highlight bg that the override above
+   can't reach, so remap just those. */
+.dark .text-\[\#1a2a4a\],
+.dark .text-\[\#12223b\] { color: #e2e8f0 !important; }
+.dark .text-\[\#667282\] { color: #94a3b8 !important; }
+.dark .bg-\[\#EBF5FF\] { background-color: rgba(56, 133, 201, 0.12) !important; }
+
+/* ------------------------------------------------- SVG stroke/fill icons
+   Page-title dropdown chevrons (and similar icons) use stroke-black, which the
+   text/bg overrides don't reach, so they stay black and invisible on dark.
+   Used across admin/company/agent listing pages. */
+.dark .stroke-black {
+  stroke: #e2e8f0 !important;
+}
+.dark .fill-black {
+  fill: #e2e8f0 !important;
+}
+
+/* ------------------------------------------- translucent white overlays
+   bg-white/80, bg-white/20 etc. (e.g. glassy summary cards) are separate
+   classes from bg-white, so remap the common opacities here. */
+.dark .bg-white\/95,
+.dark .bg-white\/90,
+.dark .bg-white\/80,
+.dark .bg-white\/75,
+.dark .bg-white\/70,
+.dark .bg-white\/60,
+.dark .bg-white\/50 {
+  background-color: rgba(30, 41, 59, 0.85) !important;
+}
+.dark .bg-white\/40,
+.dark .bg-white\/30,
+.dark .bg-white\/20,
+.dark .bg-white\/10,
+.dark .bg-white\/5 {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+.dark .border-white\/30,
+.dark .border-white\/20,
+.dark .border-white\/10 {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* translucent pastel row highlights, e.g. unread notification rows
+   (bg-blue-50/50 is used on every portal's notification page) */
+.dark .bg-blue-50\/50,
+.dark .bg-blue-50\/30,
+.dark .bg-indigo-50\/50,
+.dark .bg-sky-50\/50 {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}
+.dark .bg-green-50\/50 { background-color: rgba(34, 197, 94, 0.1) !important; }
+.dark .bg-amber-50\/50,
+.dark .bg-yellow-50\/50 { background-color: rgba(245, 158, 11, 0.1) !important; }
+.dark .bg-red-50\/50 { background-color: rgba(239, 68, 68, 0.1) !important; }
+
+/* translucent gray surfaces (bg-gray-50/50 is used heavily on report pages as
+   page backgrounds, card header/footer bars, table header rows and inputs) ->
+   canvas tone, so they read as recessed surfaces instead of washed-out light */
+.dark .bg-gray-50\/95, .dark .bg-gray-50\/90, .dark .bg-gray-50\/80,
+.dark .bg-gray-50\/70, .dark .bg-gray-50\/60, .dark .bg-gray-50\/50,
+.dark .bg-gray-50\/40, .dark .bg-gray-50\/30, .dark .bg-gray-50\/20,
+.dark .bg-slate-50\/50, .dark .bg-slate-50\/30 {
+  background-color: #0f172a !important;
+}
+.dark .bg-gray-100\/50, .dark .bg-gray-100\/70, .dark .bg-gray-100\/80,
+.dark .bg-slate-100\/50 {
+  background-color: #334155 !important;
+}
+
+/* -200 gradient stops (thin divider lines such as from-gray-200 to-transparent) */
+.dark .from-gray-200, .dark .from-slate-200 {
+  --tw-gradient-from: #334155 var(--tw-gradient-from-position) !important;
+}
+.dark .to-gray-200, .dark .to-slate-200 {
+  --tw-gradient-to: #334155 var(--tw-gradient-to-position) !important;
+}
+
+/* ----------------------------------------------------- light gradient banners
+   Decorative banners use light gradient stops (from-blue-50 via-indigo-50
+   to-purple-50, from-white to-gray-50, ...). Tailwind builds gradients from
+   CSS variables, so we remap the light (-50/-100) and white stops to a dark
+   slate gradient. Brand gradients (-500/-600/arbitrary) are left untouched. */
+.dark .from-white,
+.dark .from-gray-50, .dark .from-gray-100,
+.dark .from-slate-50, .dark .from-slate-100,
+.dark .from-zinc-50, .dark .from-zinc-100,
+.dark .from-neutral-50, .dark .from-neutral-100,
+.dark .from-blue-50, .dark .from-blue-100,
+.dark .from-indigo-50, .dark .from-indigo-100,
+.dark .from-violet-50, .dark .from-violet-100,
+.dark .from-purple-50, .dark .from-purple-100,
+.dark .from-fuchsia-50, .dark .from-fuchsia-100,
+.dark .from-pink-50, .dark .from-pink-100,
+.dark .from-rose-50, .dark .from-rose-100,
+.dark .from-red-50, .dark .from-red-100,
+.dark .from-orange-50, .dark .from-orange-100,
+.dark .from-amber-50, .dark .from-amber-100,
+.dark .from-yellow-50, .dark .from-yellow-100,
+.dark .from-lime-50, .dark .from-lime-100,
+.dark .from-green-50, .dark .from-green-100,
+.dark .from-emerald-50, .dark .from-emerald-100,
+.dark .from-teal-50, .dark .from-teal-100,
+.dark .from-cyan-50, .dark .from-cyan-100,
+.dark .from-sky-50, .dark .from-sky-100 {
+  --tw-gradient-from: #0f172a var(--tw-gradient-from-position) !important;
+}
+.dark .to-white,
+.dark .to-gray-50, .dark .to-gray-100,
+.dark .to-slate-50, .dark .to-slate-100,
+.dark .to-zinc-50, .dark .to-zinc-100,
+.dark .to-neutral-50, .dark .to-neutral-100,
+.dark .to-blue-50, .dark .to-blue-100,
+.dark .to-indigo-50, .dark .to-indigo-100,
+.dark .to-violet-50, .dark .to-violet-100,
+.dark .to-purple-50, .dark .to-purple-100,
+.dark .to-fuchsia-50, .dark .to-fuchsia-100,
+.dark .to-pink-50, .dark .to-pink-100,
+.dark .to-rose-50, .dark .to-rose-100,
+.dark .to-red-50, .dark .to-red-100,
+.dark .to-orange-50, .dark .to-orange-100,
+.dark .to-amber-50, .dark .to-amber-100,
+.dark .to-yellow-50, .dark .to-yellow-100,
+.dark .to-lime-50, .dark .to-lime-100,
+.dark .to-green-50, .dark .to-green-100,
+.dark .to-emerald-50, .dark .to-emerald-100,
+.dark .to-teal-50, .dark .to-teal-100,
+.dark .to-cyan-50, .dark .to-cyan-100,
+.dark .to-sky-50, .dark .to-sky-100 {
+  --tw-gradient-to: #1e293b var(--tw-gradient-to-position) !important;
+}
+.dark .via-white,
+.dark .via-gray-50, .dark .via-gray-100,
+.dark .via-slate-50, .dark .via-slate-100,
+.dark .via-blue-50, .dark .via-blue-100,
+.dark .via-indigo-50, .dark .via-indigo-100,
+.dark .via-violet-50, .dark .via-violet-100,
+.dark .via-purple-50, .dark .via-purple-100,
+.dark .via-pink-50, .dark .via-pink-100,
+.dark .via-rose-50, .dark .via-rose-100,
+.dark .via-red-50, .dark .via-red-100,
+.dark .via-orange-50, .dark .via-orange-100,
+.dark .via-amber-50, .dark .via-amber-100,
+.dark .via-yellow-50, .dark .via-yellow-100,
+.dark .via-green-50, .dark .via-green-100,
+.dark .via-emerald-50, .dark .via-emerald-100,
+.dark .via-teal-50, .dark .via-teal-100,
+.dark .via-cyan-50, .dark .via-cyan-100,
+.dark .via-sky-50, .dark .via-sky-100 {
+  --tw-gradient-stops: var(--tw-gradient-from),
+    #1a2436 var(--tw-gradient-via-position),
+    var(--tw-gradient-to) !important;
+}
+
+/* ----------------------------------------------------- colored pastel chips
+   Icon circles / status badges use bg-<color>-50/100/200 with dark text.
+   Remap the tints to translucent versions and lighten the dark text so they
+   stay legible on a dark background. */
+
+/* gray badge ("Inactive") */
+.dark .text-gray-600.bg-gray-100,
+.dark .bg-gray-100.text-gray-600 {
+  color: #cbd5e1 !important;
+}
+
+/* green */
+.dark .bg-green-50 { background-color: rgba(34, 197, 94, 0.12) !important; }
+.dark .bg-green-100 { background-color: rgba(34, 197, 94, 0.18) !important; }
+.dark .bg-green-200 { background-color: rgba(34, 197, 94, 0.26) !important; }
+.dark .text-green-700, .dark .text-green-800, .dark .text-green-900 { color: #86efac !important; }
+.dark .text-green-600 { color: #4ade80 !important; }
+.dark .hover\:bg-green-50:hover, .dark .hover\:bg-green-100:hover { background-color: rgba(34, 197, 94, 0.18) !important; }
+
+/* red */
+.dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.12) !important; }
+.dark .bg-red-100 { background-color: rgba(239, 68, 68, 0.18) !important; }
+.dark .bg-red-200 { background-color: rgba(239, 68, 68, 0.26) !important; }
+.dark .text-red-700, .dark .text-red-800, .dark .text-red-900 { color: #fca5a5 !important; }
+.dark .text-red-600 { color: #f87171 !important; }
+.dark .text-red-400 { color: #fca5a5 !important; }
+.dark .hover\:bg-red-50:hover, .dark .hover\:bg-red-100:hover { background-color: rgba(239, 68, 68, 0.18) !important; }
+
+/* yellow / amber */
+.dark .bg-yellow-50, .dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.12) !important; }
+.dark .bg-yellow-100, .dark .bg-amber-100 { background-color: rgba(245, 158, 11, 0.18) !important; }
+.dark .bg-yellow-200, .dark .bg-amber-200 { background-color: rgba(245, 158, 11, 0.26) !important; }
+.dark .text-yellow-700, .dark .text-yellow-800, .dark .text-amber-700, .dark .text-amber-800 { color: #fcd34d !important; }
+.dark .text-yellow-600, .dark .text-amber-600 { color: #fbbf24 !important; }
+.dark .hover\:bg-amber-50:hover, .dark .hover\:bg-amber-100:hover { background-color: rgba(245, 158, 11, 0.18) !important; }
+
+/* orange */
+.dark .bg-orange-50 { background-color: rgba(249, 115, 22, 0.12) !important; }
+.dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.18) !important; }
+.dark .bg-orange-200 { background-color: rgba(249, 115, 22, 0.26) !important; }
+.dark .text-orange-700, .dark .text-orange-800 { color: #fdba74 !important; }
+.dark .text-orange-600 { color: #fb923c !important; }
+
+/* blue */
+.dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.12) !important; }
+.dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.18) !important; }
+.dark .bg-blue-200 { background-color: rgba(59, 130, 246, 0.26) !important; }
+.dark .text-blue-700, .dark .text-blue-800, .dark .text-blue-900 { color: #93c5fd !important; }
+.dark .text-blue-600 { color: #60a5fa !important; }
+.dark .hover\:bg-blue-50:hover, .dark .hover\:bg-blue-100:hover { background-color: rgba(59, 130, 246, 0.18) !important; }
+
+/* indigo */
+.dark .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.12) !important; }
+.dark .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.18) !important; }
+.dark .bg-indigo-200 { background-color: rgba(99, 102, 241, 0.26) !important; }
+.dark .text-indigo-700, .dark .text-indigo-800 { color: #a5b4fc !important; }
+.dark .text-indigo-600 { color: #818cf8 !important; }
+.dark .hover\:bg-indigo-50:hover, .dark .hover\:bg-indigo-100:hover { background-color: rgba(99, 102, 241, 0.18) !important; }
+
+/* purple / violet */
+.dark .bg-purple-50, .dark .bg-violet-50 { background-color: rgba(168, 85, 247, 0.12) !important; }
+.dark .bg-purple-100, .dark .bg-violet-100 { background-color: rgba(168, 85, 247, 0.18) !important; }
+.dark .text-purple-700, .dark .text-purple-800, .dark .text-violet-700 { color: #d8b4fe !important; }
+.dark .text-purple-600, .dark .text-violet-600 { color: #c084fc !important; }
+.dark .hover\:bg-purple-50:hover, .dark .hover\:bg-purple-100:hover { background-color: rgba(168, 85, 247, 0.18) !important; }
+
+/* pink / rose */
+.dark .bg-pink-50, .dark .bg-rose-50 { background-color: rgba(236, 72, 153, 0.12) !important; }
+.dark .bg-pink-100, .dark .bg-rose-100 { background-color: rgba(236, 72, 153, 0.18) !important; }
+.dark .text-pink-700, .dark .text-pink-800, .dark .text-rose-700 { color: #f9a8d4 !important; }
+.dark .text-pink-600, .dark .text-rose-600 { color: #f472b6 !important; }
+.dark .hover\:bg-pink-50:hover, .dark .hover\:bg-pink-100:hover { background-color: rgba(236, 72, 153, 0.18) !important; }
+
+/* cyan / teal / sky */
+.dark .bg-cyan-50, .dark .bg-teal-50, .dark .bg-sky-50 { background-color: rgba(6, 182, 212, 0.12) !important; }
+.dark .bg-cyan-100, .dark .bg-teal-100, .dark .bg-sky-100 { background-color: rgba(6, 182, 212, 0.18) !important; }
+.dark .text-cyan-700, .dark .text-cyan-800, .dark .text-teal-700, .dark .text-sky-700 { color: #67e8f9 !important; }
+.dark .text-cyan-600, .dark .text-teal-600, .dark .text-sky-600 { color: #22d3ee !important; }
+.dark .hover\:bg-cyan-50:hover, .dark .hover\:bg-cyan-100:hover { background-color: rgba(6, 182, 212, 0.18) !important; }
+
+/* ----------------------------------------------------------------- shadows */
+.dark .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.4) !important; }
+.dark .shadow,
+.dark .shadow-md { box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.5) !important; }
+.dark .shadow-lg,
+.dark .shadow-xl { box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.6) !important; }
+
+/* ------------------------------------------------------------- SweetAlert2 */
+.dark .swal2-popup {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+.dark .swal2-title,
+.dark .swal2-html-container {
+  color: #e2e8f0 !important;
+}
+.dark .swal2-input,
+.dark .swal2-textarea {
+  background: #0f172a !important;
+  color: #e2e8f0 !important;
+  border-color: #334155 !important;
+}
+
+/* ------------------------------------------------------------ react-datepicker */
+.dark .react-datepicker {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+.dark .react-datepicker__header {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+}
+.dark .react-datepicker__current-month,
+.dark .react-datepicker__day-name,
+.dark .react-datepicker__day,
+.dark .react-datepicker-time__header,
+.dark .react-datepicker__time-name {
+  color: #e2e8f0 !important;
+}
+.dark .react-datepicker__day:hover {
+  background-color: #334155 !important;
+}
+.dark .react-datepicker__day--selected,
+.dark .react-datepicker__day--keyboard-selected {
+  background-color: #2563eb !important;
+  color: #fff !important;
+}
+
+/* ------------------------------------------------------------------ recharts */
+.dark .recharts-cartesian-grid line {
+  stroke: #334155 !important;
+}
+.dark .recharts-text {
+  fill: #94a3b8 !important;
+}
+.dark .recharts-default-tooltip {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+/* ---------------------------------------------------------------- scrollbars */
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #0f172a;
+}
