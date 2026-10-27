@@ -1,18 +1,17 @@
 import axios from "axios";
 import Cookies from "js-cookie";
 import Swal from "sweetalert2";
+import { ADMIN_API_URL } from "./adminApiUrl";
 
 // Java backend (admin panel). Every response is { success, data } or
 // { success: false, error: { code, message, fieldErrors, traceId } }.
 // In development the request goes through the /api/v1 route handler
-// (src/app/api/v1/[...path]/route.js) because the backend CORS
-// doesn't allow localhost; in production it goes straight to the backend
-// unless NEXT_PUBLIC_ADMIN_API_URL says otherwise.
+// (src/app/api/v1/[...path]/route.js), which relays it to ADMIN_API_URL,
+// because the backend CORS doesn't allow localhost; in production it goes
+// straight to ADMIN_API_URL unless NEXT_PUBLIC_ADMIN_API_URL says otherwise.
 export const ADMIN_API_BASE =
   process.env.NEXT_PUBLIC_ADMIN_API_URL ||
-  (process.env.NODE_ENV === "development"
-    ? "/api/v1"
-    : "https://api-dev.techagent.co.in/api/v1");
+  (process.env.NODE_ENV === "development" ? "/api/v1" : ADMIN_API_URL);
 
 const cookieOptions = {
   expires: 7,

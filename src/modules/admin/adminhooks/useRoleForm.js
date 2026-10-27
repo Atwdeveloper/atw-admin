@@ -11,10 +11,12 @@ import {
 } from "../../../api/adminV1/roleAPI";
 import { catalogToModules } from "../../../api/adminV1/permissions";
 import { apiError } from "../../../api/javaApi";
+import { useAdminPermissions } from "../../../common/hooks/useAdminPermissions";
 
 export const useRoleForm = (isEdit = false) => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { refresh: refreshMyPermissions } = useAdminPermissions();
 
   const [loading, setLoading] = useState(false);
   // [{ module, module_label, actions: [{ action, label }] }]
@@ -234,6 +236,8 @@ export const useRoleForm = (isEdit = false) => {
 
       if (isEdit) {
         await updateRoleAPI(id, submitData);
+        // The admin may hold this role — keep the sidebar and page guards in step.
+        refreshMyPermissions();
       } else {
         await createRoleAPI(submitData);
       }

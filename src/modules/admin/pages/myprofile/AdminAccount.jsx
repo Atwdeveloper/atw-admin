@@ -101,11 +101,15 @@ const AdminAccount = () => {
               <p className="text-sm text-gray-600">You have full access to every admin section.</p>
             ) : me.roles?.length ? (
               <div className="flex flex-wrap gap-2">
-                {me.roles.map((role) => (
-                  <span key={role} className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-sm font-medium bg-blue-50 text-blue-700">
-                    <Shield size={13} /> {role}
-                  </span>
-                ))}
+                {/* Role names, or { id, name } like the staff endpoints return */}
+                {me.roles.map((role) => {
+                  const name = typeof role === "string" ? role : role.name;
+                  return (
+                    <span key={role.id || name} className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-sm font-medium bg-blue-50 text-blue-700">
+                      <Shield size={13} /> {name}
+                    </span>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-gray-500">No roles assigned yet.</p>

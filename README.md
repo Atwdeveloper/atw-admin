@@ -19,9 +19,12 @@ npm run dev                  # http://localhost:3000 -> /admin/dashboard
 - **Java backend**, used by the live screens: `src/api/javaApi.js` (axios client,
   token refresh, error helper `apiError`) plus `src/api/adminV1/*`. New Java
   endpoints go in `src/api/adminV1/`.
+- The base path is `ADMIN_API_URL` in `src/api/adminApiUrl.js`
+  (`https://api-dev.techagent.co.in/api/v1`).
 - In development the browser calls `/api/v1/*` on this app and
-  `src/app/api/v1/[...path]/route.js` relays it to `ADMIN_API_PROXY_TARGET`,
-  because the backend's CORS list doesn't include localhost. In production
+  `src/app/api/v1/[...path]/route.js` relays it to that base path (or
+  `ADMIN_API_PROXY_TARGET`, if set), because the backend's CORS list doesn't
+  include localhost. In production
   the client calls the backend directly unless `NEXT_PUBLIC_ADMIN_API_URL` is set
   (set it to `/api/v1` to go through the proxy instead).
 - **Old Laravel API**: `src/api/axiosInstance.js` and `src/api/admin/*`. Only

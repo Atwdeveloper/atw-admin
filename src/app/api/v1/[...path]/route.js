@@ -2,7 +2,10 @@
 // The backend CORS list doesn't include localhost, so in development the
 // browser calls this app's own origin and the request is relayed from here.
 
-const TARGET = (process.env.ADMIN_API_PROXY_TARGET || "https://api-dev.techagent.co.in").replace(/\/$/, "");
+import { ADMIN_API_URL } from "@/api/adminApiUrl";
+
+// Full backend base path, ending in /api/v1.
+const TARGET = (process.env.ADMIN_API_PROXY_TARGET || ADMIN_API_URL).replace(/\/$/, "");
 
 // Hop-by-hop headers, plus ones fetch recomputes. Origin is dropped because
 // Spring checks it on every request, not just preflights, and would 403.
@@ -13,7 +16,7 @@ const DROP_RESPONSE = ["content-encoding", "content-length", "transfer-encoding"
 async function proxy(request, { params }) {
   const { path } = await params;
   const search = new URL(request.url).search;
-  const url = `${TARGET}/api/v1/${path.map(encodeURIComponent).join("/")}${search}`;
+  const url = `${TARGET}/${path.map(encodeURIComponent).join("/")}${search}`;
 
   const headers = new Headers(request.headers);
   DROP_REQUEST.forEach((name) => headers.delete(name));
