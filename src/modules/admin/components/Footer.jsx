@@ -10,12 +10,12 @@ export default function Footer() {
         © {new Date().getFullYear()} Anytime Work. All rights reserved. |
         Developed by{" "}
         <a
-          href="https://www.logicspice.com/"
+          href="https://www.anytimework.in/"
           target="_blank"
           rel="noopener noreferrer"
           className="text-blue-600 hover:underline font-medium ml-1"
         >
-          LogicSpice
+          Anytime Work
         </a>
       </div>
     </footer>
