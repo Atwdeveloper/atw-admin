@@ -6,25 +6,29 @@ import Swal from "sweetalert2";
 import {
   createStaffAPI,
   getStaffAPI,
+  getStaffAddressAPI,
   getStaffBankAPI,
   getStaffKycAPI,
   getStaffProfileAPI,
   updateStaffAPI,
+  updateStaffAddressAPI,
   updateStaffBankAPI,
   updateStaffKycAPI,
   updateStaffProfileAPI,
 } from "../../../api/adminV1/staffAPI";
 import { getRolesAPI } from "../../../api/adminV1/roleAPI";
+import { getCitiesAPI, getStatesAPI } from "../../../api/adminV1/geographyAPI";
 import { apiError } from "../../../api/javaApi";
 
 // Form field groups — each maps to one backend resource.
 export const CORE_FIELDS = ["fullName", "email", "username", "phone", "roleIds"];
-export const PROFILE_FIELDS = ["dateOfBirth", "gender", "addressLine", "pincode"];
+export const PROFILE_FIELDS = ["dateOfBirth", "gender"];
+export const ADDRESS_FIELDS = ["line1", "line2", "stateId", "cityId", "pincode"];
 export const KYC_FIELDS = ["aadhaarNumber", "panNumber", "uanNumber", "pfNumber", "esicNumber"];
 export const BANK_FIELDS = ["accountHolderName", "bankName", "accountNumber", "ifscCode", "branchName"];
 
 const EMPTY = Object.fromEntries(
-  [...CORE_FIELDS, ...PROFILE_FIELDS, ...KYC_FIELDS, ...BANK_FIELDS].map((f) => [
+  [...CORE_FIELDS, ...PROFILE_FIELDS, ...ADDRESS_FIELDS, ...KYC_FIELDS, ...BANK_FIELDS].map((f) => [
     f,
     f === "roleIds" ? [] : "",
   ]),
@@ -53,7 +57,8 @@ const validate = (form, { mode, maskedKyc, replaceKyc, savedAccountMasked, bankC
   if (!showExtras) return e;
 
   if (form.pincode && !/^\d{6}$/.test(form.pincode.trim())) e.pincode = "Pincode must be 6 digits";
-  if (form.addressLine.length > 255) e.addressLine = "Address must be at most 255 characters";
+  if (form.line1.length > 255) e.line1 = "Address line 1 must be at most 255 characters";
+  if (form.line2.length > 255) e.line2 = "Address line 2 must be at most 255 characters";
 
   if (!maskedKyc || replaceKyc) {
     if (form.aadhaarNumber && !/^\d{12}$/.test(form.aadhaarNumber.replace(/\s/g, "")))
@@ -90,6 +95,12 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
   const [roles, setRoles] = useState([]);
   const [rolesError, setRolesError] = useState("");
 
+  // Address dropdowns
+  const [states, setStates] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [citiesLoading, setCitiesLoading] = useState(false);
+  const [geoError, setGeoError] = useState("");
+
   // Edit-mode facts about the existing record
   const [staff, setStaff] = useState(null);
   const [maskedKyc, setMaskedKyc] = useState(null); // masked values as returned, or null
@@ -113,6 +124,33 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
       });
   }, []);
 
+  useEffect(() => {
+    getStatesAPI()
+      .then((list) => setStates(list || []))
+      .catch(() => setGeoError("Couldn't load states. Reload the page to try again."));
+  }, []);
+
+  // Cities follow the selected state (also covers the saved state on edit)
+  useEffect(() => {
+    if (!form.stateId) {
+      setCities([]);
+      return;
+    }
+    let cancelled = false;
+    setCitiesLoading(true);
+    getCitiesAPI(form.stateId)
+      .then((list) => !cancelled && setCities(list || []))
+      .catch(() => {
+        if (cancelled) return;
+        setCities([]);
+        setGeoError("Couldn't load cities for this state.");
+      })
+      .finally(() => !cancelled && setCitiesLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [form.stateId]);
+
   // Load the existing staff member + sub-resources
   useEffect(() => {
     if (mode !== "edit" || !staffId) return;
@@ -122,14 +160,15 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
       try {
         const s = await getStaffAPI(staffId);
         const extras = s.superAdmin
-          ? [{}, {}, {}]
+          ? [{}, {}, {}, {}]
           : await Promise.all([
               getStaffProfileAPI(staffId).catch(() => ({})),
+              getStaffAddressAPI(staffId).catch(() => ({})),
               getStaffKycAPI(staffId).catch(() => ({})),
               getStaffBankAPI(staffId).catch(() => ({})),
             ]);
         if (cancelled) return;
-        const [profile, kyc, bank] = extras;
+        const [profile, address, kyc, bank] = extras;
 
         const kycIsMasked = KYC_FIELDS.some((f) => isMasked(kyc?.[f]));
         const accountMasked = isMasked(bank?.accountNumber) ? bank.accountNumber : "";
@@ -143,8 +182,7 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
           roleIds: (s.roles || []).map((r) => r.id),
           dateOfBirth: profile?.dateOfBirth || "",
           gender: profile?.gender || "",
-          addressLine: profile?.addressLine || "",
-          pincode: profile?.pincode || "",
+          ...Object.fromEntries(ADDRESS_FIELDS.map((f) => [f, address?.[f] || ""])),
           // Masked KYC isn't put in the inputs — it's shown read-only instead.
           ...Object.fromEntries(KYC_FIELDS.map((f) => [f, kycIsMasked ? "" : kyc?.[f] || ""])),
           accountHolderName: bank?.accountHolderName || "",
@@ -185,6 +223,12 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
     setErrors((e) => (e[field] ? { ...e, [field]: undefined } : e));
   };
 
+  // A city only belongs to one state, so changing the state clears it.
+  const updateState = (stateId) => {
+    setForm((f) => ({ ...f, stateId, cityId: f.stateId === stateId ? f.cityId : "" }));
+    setErrors((e) => ({ ...e, stateId: undefined, cityId: undefined }));
+  };
+
   const toggleRole = (roleId) => {
     setForm((f) => ({
       ...f,
@@ -206,6 +250,7 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
     event?.preventDefault();
 
     const profileChanged = changed(form, initial, PROFILE_FIELDS);
+    const addressChanged = changed(form, initial, ADDRESS_FIELDS);
     const kycChanged = maskedKyc ? replaceKyc : changed(form, initial, KYC_FIELDS);
     const bankChanged = changed(form, initial, BANK_FIELDS);
 
@@ -259,7 +304,16 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
             updateStaffProfileAPI(id, {
               dateOfBirth: form.dateOfBirth || null,
               gender: form.gender || null,
-              addressLine: trimOrNull(form.addressLine),
+            }),
+        ],
+        addressChanged && [
+          "Address",
+          () =>
+            updateStaffAddressAPI(id, {
+              line1: trimOrNull(form.line1),
+              line2: trimOrNull(form.line2),
+              stateId: form.stateId || null,
+              cityId: form.cityId || null,
               pincode: trimOrNull(form.pincode),
             }),
         ],
@@ -326,9 +380,14 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
     form,
     errors,
     update,
+    updateState,
     toggleRole,
     roles,
     rolesError,
+    states,
+    cities,
+    citiesLoading,
+    geoError,
     staff,
     loading,
     isSubmitting,

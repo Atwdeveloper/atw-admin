@@ -4,8 +4,18 @@ import javaApi, { unwrap } from "../javaApi";
 //                  roles: [{ id, name }], lastLoginAt, createdAt }
 
 // page is 0-based. -> { content, page, size, totalElements, totalPages, first, last }
-export const getStaffListAPI = ({ page = 0, size = 10, sort } = {}) =>
-  javaApi.get("/admin/staff", { params: { page, size, sort } }).then(unwrap);
+// filters: { search, statuses[], roleIds[], stateIds[], cityIds[], createdFrom, createdTo }
+// NOTE: the backend doesn't accept any filters yet (only page/size/sort) and
+// ignores them — they're sent so the listing filters server-side as soon as
+// it adds them under these names. Until then the page filters what it loaded.
+export const getStaffListAPI = ({ page = 0, size = 10, sort, ...filters } = {}) => {
+  const params = Object.fromEntries(
+    Object.entries({ page, size, sort, ...filters }).filter(
+      ([, v]) => v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0),
+    ),
+  );
+  return javaApi.get("/admin/staff", { params, paramsSerializer: { indexes: null } }).then(unwrap);
+};
 
 export const getStaffAPI = (id) => javaApi.get(`/admin/staff/${id}`).then(unwrap);
 
@@ -26,8 +36,15 @@ export const deleteStaffAPI = (id) => javaApi.delete(`/admin/staff/${id}`).then(
 // full replace. KYC numbers and bank account number come back masked unless
 // the caller holds admin_staff.view_kyc / admin_staff.view_bank_details.
 export const getStaffProfileAPI = (id) => javaApi.get(`/admin/staff/${id}/profile`).then(unwrap);
+// Profile body: { dateOfBirth?, gender? } — address is its own resource below.
 export const updateStaffProfileAPI = (id, body) =>
   javaApi.put(`/admin/staff/${id}/profile`, body).then(unwrap);
+
+// -> { line1, line2, stateId, cityId, pincode, latitude, longitude, formattedAddress }
+// body: { line1?, line2?, stateId?, cityId?, pincode? }
+export const getStaffAddressAPI = (id) => javaApi.get(`/admin/staff/${id}/address`).then(unwrap);
+export const updateStaffAddressAPI = (id, body) =>
+  javaApi.put(`/admin/staff/${id}/address`, body).then(unwrap);
 
 export const getStaffKycAPI = (id) => javaApi.get(`/admin/staff/${id}/kyc`).then(unwrap);
 export const updateStaffKycAPI = (id, body) =>

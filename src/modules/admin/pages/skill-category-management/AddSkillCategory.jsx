@@ -9,17 +9,21 @@ import {
   containerVariants,
   itemVariants,
 } from "../../../../common/utils/motionVariants";
-import { addSkillCategoryAPI } from "../../../../api/admin/adminSkillCategoryAPI";
+import {
+  createSkillCategoryAPI,
+  setSkillCategoryStatusAPI,
+} from "../../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 
 const AddSkillCategory = () => {
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
+  const canToggleStatus = hasPermission("skill_category", "toggle_status");
   const [formData, setFormData] = useState({
     name: "",
-    code: "",
-    status: 1,
+    status: "ACTIVE",
   });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -49,6 +53,8 @@ const AddSkillCategory = () => {
       newErrors.name = "Skill category name is required";
     } else if (!/^[a-zA-Z0-9\s-]+$/.test(formData.name)) {
       newErrors.name = "Special characters are not allowed";
+    } else if (formData.name.trim().length > 150) {
+      newErrors.name = "Name must be at most 150 characters";
     }
 
     setErrors(newErrors);
@@ -61,20 +67,11 @@ const AddSkillCategory = () => {
 
     setSubmitting(true);
     try {
-      const payload = {
-        name: formData.name,
-        code: formData.code || null,
-        status: formData.status,
-      };
-      const response = await addSkillCategoryAPI(payload);
-
-      if (response?.status && response.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Failed to add skill category",
-          text: response.message || "Something went wrong",
-        });
-        return;
+      const payload = { name: formData.name.trim() };
+      const created = await createSkillCategoryAPI(payload);
+      // New categories start ACTIVE; status has its own endpoint.
+      if (formData.status === "INACTIVE" && canToggleStatus) {
+        await setSkillCategoryStatusAPI(created.id, "INACTIVE");
       }
 
       Swal.fire({
@@ -86,22 +83,21 @@ const AddSkillCategory = () => {
       });
       navigate("/admin/skill-categories");
     } catch (error) {
-      console.error("Error adding skill category:", error);
-
-      const validationErrors = error.response?.data?.errors;
-      if (error.response?.status === 422 && validationErrors) {
-        setErrors((prev) => ({
-          ...prev,
-          name: validationErrors.name?.[0] || prev.name,
-          code: validationErrors.code?.[0] || prev.code,
-        }));
+      const { code, message, fieldErrors } = apiError(error);
+      // The only unique user-entered field is the name (code is backend-generated)
+      if (code === "CONFLICT") {
+        setErrors((prev) => ({ ...prev, name: message }));
+        return;
+      }
+      if (fieldErrors.name) {
+        setErrors((prev) => ({ ...prev, name: fieldErrors.name }));
         return;
       }
 
       Swal.fire({
         icon: "error",
         title: "Failed to add skill category",
-        text: error.response?.data?.message || "Something went wrong",
+        text: message,
       });
     } finally {
       setSubmitting(false);
@@ -166,6 +162,7 @@ const AddSkillCategory = () => {
               type="text"
               id="name"
               name="name"
+              maxLength={150}
               value={formData.name}
               onChange={handleChange}
               onBlur={() => validate()}
@@ -180,29 +177,7 @@ const AddSkillCategory = () => {
             )}
           </div>
 
-          <div>
-            <label
-              htmlFor="code"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Code
-            </label>
-            <input
-              type="text"
-              id="code"
-              name="code"
-              value={formData.code}
-              onChange={handleChange}
-              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.code ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder="e.g., skilled"
-            />
-            {errors.code && (
-              <p className="mt-1 text-sm text-red-600">{errors.code}</p>
-            )}
-          </div>
-
+          {canToggleStatus && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Status
@@ -212,10 +187,10 @@ const AddSkillCategory = () => {
                 <input
                   type="radio"
                   name="status"
-                  value="1"
-                  checked={Number(formData.status) === 1}
+                  value="ACTIVE"
+                  checked={formData.status === "ACTIVE"}
                   onChange={() =>
-                    setFormData((prev) => ({ ...prev, status: 1 }))
+                    setFormData((prev) => ({ ...prev, status: "ACTIVE" }))
                   }
                   className="w-4 h-4 text-blue-600"
                 />
@@ -225,10 +200,10 @@ const AddSkillCategory = () => {
                 <input
                   type="radio"
                   name="status"
-                  value="0"
-                  checked={Number(formData.status) === 0}
+                  value="INACTIVE"
+                  checked={formData.status === "INACTIVE"}
                   onChange={() =>
-                    setFormData((prev) => ({ ...prev, status: 0 }))
+                    setFormData((prev) => ({ ...prev, status: "INACTIVE" }))
                   }
                   className="w-4 h-4 text-blue-600"
                 />
@@ -236,6 +211,7 @@ const AddSkillCategory = () => {
               </label>
             </div>
           </div>
+          )}
 
           <div className="flex justify-end gap-3">
             <button

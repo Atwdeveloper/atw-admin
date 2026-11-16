@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "@/lib/navigation";
 import {
   Edit2,
-  Trash2,
   Plus,
   Eye,
   CheckCircle,
@@ -19,6 +18,7 @@ import {
   Building2,
   Wrench,
   MoreVertical,
+  Trash2,
   Image as ImageIcon,
 } from "lucide-react";
 import {
@@ -30,21 +30,27 @@ import { useDesignationListManagement } from "../../adminhooks/useDesignationLis
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import SortableHeader from "../../../../common/components/SortableHeader";
+import { getDesignationAPI } from "../../../../api/adminV1/masterdataAPI";
 
+import ActionMenuPortal from "../../../../common/components/ActionMenuPortal";
 // ====================== VIEW MODAL ======================
 const DesignationViewModal = ({ designation, isOpen, onClose, onEdit }) => {
-  const formatDate = (dateString) => {
-    if (!dateString) return "Not Provided";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
+  // List rows never carry an image URL; the single-item GET returns a signed one.
+  const [imageUrl, setImageUrl] = useState(null);
+  useEffect(() => {
+    setImageUrl(null);
+    if (!isOpen || !designation) return;
+    let cancelled = false;
+    getDesignationAPI(designation.id)
+      .then((d) => !cancelled && setImageUrl(d?.imageUrl || null))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, designation]);
 
   const renderStatus = () => {
-    const isActive = Number(designation.status) === 1;
+    const isActive = designation.status === "ACTIVE";
     return (
       <span
         className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
@@ -112,9 +118,9 @@ const DesignationViewModal = ({ designation, isOpen, onClose, onEdit }) => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
-                    {designation.image_url ? (
+                    {imageUrl ? (
                       <img
-                        src={designation.image_url}
+                        src={imageUrl}
                         alt={designation.name}
                         className="w-full h-full object-cover"
                       />
@@ -154,23 +160,7 @@ const DesignationViewModal = ({ designation, isOpen, onClose, onEdit }) => {
                       Skill Category
                     </span>
                     <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {designation.skill_category?.name || "Not assigned"}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">
-                      Created At
-                    </span>
-                    <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {formatDate(designation.created_at)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">
-                      Last Updated
-                    </span>
-                    <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {formatDate(designation.updated_at)}
+                      {designation.skillCategoryName || "Not assigned"}
                     </span>
                   </div>
                 </div>
@@ -228,9 +218,9 @@ const DesignationListing = () => {
     filters,
     setFilters,
     setPage,
-    handleSearch,
-    handleDelete,
+    handleClear,
     handleToggleStatus,
+    handleDelete,
     industries,
     selectedIds,
     toggleSelectDesignation,
@@ -244,7 +234,6 @@ const DesignationListing = () => {
 
   const [selectedDesignation, setSelectedDesignation] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("all");
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showBulkDropdown, setShowBulkDropdown] = useState(false);
   const [showIndustryDropdown, setShowIndustryDropdown] = useState(false);
@@ -256,27 +245,14 @@ const DesignationListing = () => {
 
   const statusOptions = [
     { key: "all", label: "All Designations" },
-    { key: "1", label: "Active" },
-    { key: "0", label: "Inactive" },
+    { key: "ACTIVE", label: "Active" },
+    { key: "INACTIVE", label: "Inactive" },
   ];
 
-  // Sync local status filter with filters.status
-  useEffect(() => {
-    if (statusFilter === "all") {
-      setFilters((prev) => ({ ...prev, status: "" }));
-    } else {
-      setFilters((prev) => ({ ...prev, status: statusFilter }));
-    }
-  }, [statusFilter, setFilters]);
-
-  // Trigger search when filters change (debounced)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      handleSearch();
-    }, 500);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.status, filters.industry_ids]);
+  // Status filter lives in the hook's filters (sent to the API as `statuses`)
+  const statusFilter = filters.status || "all";
+  const setStatusFilter = (key) =>
+    setFilters((prev) => ({ ...prev, status: key === "all" ? "" : key }));
 
   const handleClickOutside = useCallback((event) => {
     if (
@@ -328,9 +304,7 @@ const DesignationListing = () => {
   };
 
   const handleClearAll = () => {
-    setFilters({ search: "", status: "", industry_ids: [] });
-    setStatusFilter("all");
-    handleSearch();
+    handleClear();
   };
 
   // Multi-select toggle for the Industry filter
@@ -402,8 +376,8 @@ const DesignationListing = () => {
   const canView = hasPermission("designation", "view");
   const canCreate = hasPermission("designation", "create");
   const canEdit = hasPermission("designation", "edit");
-  const canDelete = hasPermission("designation", "delete");
   const canToggleStatus = hasPermission("designation", "toggle_status");
+  const canDelete = hasPermission("designation", "delete");
   const canViewSkills = hasPermission("skill", "view");
 
   if (permissionsLoading) {
@@ -587,7 +561,7 @@ const DesignationListing = () => {
                       <div
                         className="px-3 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 text-sm text-blue-600 font-medium"
                         onClick={() => {
-                          setFilters({ ...filters, industry_ids: [] });
+                          setFilters((prev) => ({ ...prev, industry_ids: [] }));
                         }}
                       >
                         Clear selection
@@ -640,9 +614,10 @@ const DesignationListing = () => {
                   type="text"
                   placeholder="Search by designation name..."
                   value={filters.search || ""}
-                  onChange={(e) =>
-                    setFilters({ ...filters, search: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const search = e.target.value;
+                    setFilters((prev) => ({ ...prev, search }));
+                  }}
                   className="w-full sm:w-64 px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 />
 
@@ -705,9 +680,6 @@ const DesignationListing = () => {
                   Industries
                 </th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                  Primary Industry
-                </th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
                   Skill Category
                 </th>
                 <SortableHeader
@@ -724,7 +696,7 @@ const DesignationListing = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-8">
+                  <td colSpan="7" className="text-center py-8">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
@@ -732,7 +704,7 @@ const DesignationListing = () => {
                 </tr>
               ) : designations.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-10 text-gray-500">
+                  <td colSpan="7" className="text-center py-10 text-gray-500">
                     No designations found.
                   </td>
                 </tr>
@@ -763,17 +735,10 @@ const DesignationListing = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200">
-                        {designation.image_url ? (
-                          <img
-                            src={designation.image_url}
-                            alt={designation.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                            <ImageIcon className="w-5 h-5 text-gray-400" />
-                          </div>
-                        )}
+                        {/* The list endpoint never returns image URLs — see the view modal */}
+                        <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                          <ImageIcon className="w-5 h-5 text-gray-400" />
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">
@@ -799,20 +764,17 @@ const DesignationListing = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">
-                      {designation.primary_industry?.name || "-"}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {designation.skill_category?.name || "-"}
+                      {designation.skillCategoryName || "-"}
                     </td>
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                          Number(designation.status) === 1
+                          designation.status === "ACTIVE"
                             ? "bg-green-100 text-green-800"
                             : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {Number(designation.status) === 1
+                        {designation.status === "ACTIVE"
                           ? "Active"
                           : "Inactive"}
                       </span>
@@ -837,7 +799,7 @@ const DesignationListing = () => {
                         </button>
 
                         {openActionMenuId === designation.id && (
-                          <div className="absolute right-0 z-20 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
+                          <ActionMenuPortal className="w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
                             {canView && (
                               <button
                                 onClick={() => {
@@ -896,12 +858,12 @@ const DesignationListing = () => {
                                   );
                                 }}
                                 className={`w-full flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-100 ${
-                                  Number(designation.status) === 1
+                                  designation.status === "ACTIVE"
                                     ? "text-red-600 hover:bg-red-50"
                                     : "text-green-600 hover:bg-green-50"
                                 }`}
                               >
-                                {Number(designation.status) === 1 ? (
+                                {designation.status === "ACTIVE" ? (
                                   <>
                                     <XCircle size={16} />
                                     Deactivate
@@ -926,7 +888,7 @@ const DesignationListing = () => {
                                 Delete Designation
                               </button>
                             )}
-                          </div>
+                          </ActionMenuPortal>
                         )}
                       </div>
                     </td>

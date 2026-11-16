@@ -12,53 +12,25 @@ import {
   Loader2,
 } from "lucide-react";
 import {
-  sendWorkerMobileOtpAPI,
-  resendWorkerMobileOtpAPI,
-  verifyWorkerMobileOtpAPI,
-  sendWorkerAadhaarOtpAPI,
-  resendWorkerAadhaarOtpAPI,
-  verifyWorkerAadhaarOtpAPI,
-} from "../../../../api/admin/adminWorkerAPI";
+  sendIntakeMobileOtpAPI,
+  verifyIntakeMobileOtpAPI,
+  sendIntakeAadhaarOtpAPI,
+  verifyIntakeAadhaarOtpAPI,
+} from "../../../../api/adminV1/workerAPI";
+import { apiError } from "../../../../api/javaApi";
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 45;
 
-const normalizeDobToISO = (dob) => {
-  if (!dob) return "";
-  const s = String(dob).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const m = s.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  return "";
-};
-
-// These admin endpoints don't consistently return an explicit `success`
-// boolean — some responses instead signal failure via a `status` code
-// embedded in the JSON body (e.g. {status: 500, message: "Invalid OTP."}),
-// with HTTP transport itself still 200. Treat either shape as failure.
-const isApiFailure = (res) => {
-  if (!res) return true;
-  if (res.success === false) return true;
-  if (typeof res.status === "number" && res.status >= 400) return true;
-  return false;
-};
-
-// reference_id has shown up either at the top level or nested under `data`
-// depending on the endpoint/response — check both rather than assume one.
-const extractReferenceId = (res) => {
-  const value = res?.reference_id ?? res?.data?.reference_id;
-  return value != null ? String(value) : "";
-};
-
+// The provider passes gender through as free text (MALE/FEMALE/TRANSGENDER...).
 const normalizeGender = (g) => {
-  if (!g) return "";
-  const val = String(g).trim().toLowerCase();
-  if (val === "m" || val === "male") return "male";
-  if (val === "f" || val === "female") return "female";
-  if (val === "o" || val === "other" || val === "t" || val === "transgender")
-    return "other";
-  return "";
+  const val = String(g || "").trim().toUpperCase();
+  if (val === "M" || val === "MALE") return "MALE";
+  if (val === "F" || val === "FEMALE") return "FEMALE";
+  return val ? "OTHER" : "";
 };
+
+const errorMessage = (err, fallback) => apiError(err, fallback).message;
 
 const emptyOtp = () => Array(OTP_LENGTH).fill("");
 
@@ -115,16 +87,20 @@ const StepDot = ({ active, done, icon, label }) => (
   </div>
 );
 
-// Mirrors the look and feel of the worker self-registration mobile OTP +
-// Aadhaar OTP screens, but calls the admin-authenticated
-// /admin/worker/*-otp endpoints (adminWorkerAPI.js) instead of the public
-// worker-facing ones, so admin's session is never at risk here.
+// The "add worker via Aadhaar" wizard (/admin/workers/intake/*): verify the
+// mobile number by SMS OTP, then optionally run a live Aadhaar e-KYC OTP to
+// pull UIDAI-sourced details into the form. The verificationId it hands back
+// is sent as aadhaarVerificationId on create, which marks KYC verified.
+// There is no separate resend endpoint — resending is another send, and sends
+// are rate limited (3 per number / 10 per IP in 10 minutes).
 const AadhaarVerifyModal = ({ isOpen, onClose, onVerified }) => {
   // mobile | mobile_otp | mobile_success | aadhaar | aadhaar_otp | aadhaar_success
   const [stage, setStage] = useState("mobile");
   const [mobile, setMobile] = useState("");
+  const [mobileOtpId, setMobileOtpId] = useState("");
   const [mobileOtpDigits, setMobileOtpDigits] = useState(emptyOtp());
   const [aadhaarNumber, setAadhaarNumber] = useState("");
+  const [consentGiven, setConsentGiven] = useState(false);
   const [aadhaarOtpDigits, setAadhaarOtpDigits] = useState(emptyOtp());
   const [referenceId, setReferenceId] = useState("");
   const [error, setError] = useState("");
@@ -140,8 +116,10 @@ const AadhaarVerifyModal = ({ isOpen, onClose, onVerified }) => {
     if (!isOpen) return;
     setStage("mobile");
     setMobile("");
+    setMobileOtpId("");
     setMobileOtpDigits(emptyOtp());
     setAadhaarNumber("");
+    setConsentGiven(false);
     setAadhaarOtpDigits(emptyOtp());
     setReferenceId("");
     setError("");
@@ -198,48 +176,38 @@ const AadhaarVerifyModal = ({ isOpen, onClose, onVerified }) => {
     setError("");
     setBusy(true);
     try {
-      const res = await sendWorkerMobileOtpAPI(digits);
-      if (isApiFailure(res)) {
-        setError(res?.message || "Failed to send OTP");
-        return;
-      }
+      const res = await sendIntakeMobileOtpAPI(digits);
+      setMobileOtpId(res?.otpId || "");
       setMobileOtpDigits(emptyOtp());
       setStage("mobile_otp");
       setMobileResendTimer(RESEND_SECONDS);
     } catch (err) {
-      const data = err.response?.data || {};
-      setError(data.message || "Failed to send OTP. Please try again.");
+      setError(errorMessage(err, "Failed to send OTP. Please try again."));
     } finally {
       setBusy(false);
     }
   };
 
+  // No resend endpoint — a resend is a fresh send (new otpId).
   const handleResendMobileOtp = async () => {
     if (mobileResendTimer > 0) return;
     const digits = mobile.replace(/\D/g, "");
     setBusy(true);
     try {
-      const res = await resendWorkerMobileOtpAPI(digits);
-      if (isApiFailure(res)) {
-        if (res?.error_code === "OTP_COOLDOWN") {
-          setMobileResendTimer(res.wait_seconds || RESEND_SECONDS);
-        }
-        setError(res?.message || "Unable to resend OTP");
-        return;
-      }
+      const res = await sendIntakeMobileOtpAPI(digits);
+      setMobileOtpId(res?.otpId || "");
       setMobileOtpDigits(emptyOtp());
       setMobileResendTimer(RESEND_SECONDS);
       setError("");
       mobileOtpRefs.current[0]?.focus();
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to resend OTP.");
+      setError(errorMessage(err, "Unable to resend OTP."));
     } finally {
       setBusy(false);
     }
   };
 
   const handleVerifyMobileOtp = async () => {
-    const digits = mobile.replace(/\D/g, "");
     const otp = mobileOtpDigits.join("");
     if (otp.length !== OTP_LENGTH) {
       setError("Please enter the full 6-digit OTP");
@@ -248,17 +216,11 @@ const AadhaarVerifyModal = ({ isOpen, onClose, onVerified }) => {
     setError("");
     setBusy(true);
     try {
-      const res = await verifyWorkerMobileOtpAPI(digits, otp);
-      if (isApiFailure(res)) {
-        setError(res?.message || "Invalid OTP, please try again");
-        return;
-      }
+      await verifyIntakeMobileOtpAPI(mobileOtpId, otp);
       mobileVerifiedRef.current = true;
       setStage("mobile_success");
     } catch (err) {
-      setError(
-        err.response?.data?.message || "Invalid OTP. Please try again.",
-      );
+      setError(errorMessage(err, "Invalid OTP. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -276,51 +238,39 @@ const AadhaarVerifyModal = ({ isOpen, onClose, onVerified }) => {
       setError("Enter a valid 12-digit Aadhaar number");
       return;
     }
+    if (!consentGiven) {
+      setError("The worker's consent is required for Aadhaar verification");
+      return;
+    }
     setError("");
     setBusy(true);
     try {
-      const res = await sendWorkerAadhaarOtpAPI(digits);
-      if (res?.error_code === "OTP_COOLDOWN") {
-        setReferenceId(extractReferenceId(res) || referenceId);
-        setStage("aadhaar_otp");
-        setResendTimer(res.wait_seconds || RESEND_SECONDS);
-        setError(res.message || "");
-      } else if (isApiFailure(res)) {
-        setError(res?.message || "Could not send OTP");
-      } else {
-        setReferenceId(extractReferenceId(res));
-        setAadhaarOtpDigits(emptyOtp());
-        setStage("aadhaar_otp");
-        setResendTimer(RESEND_SECONDS);
-      }
+      const res = await sendIntakeAadhaarOtpAPI(digits);
+      setReferenceId(res?.verificationId || "");
+      setAadhaarOtpDigits(emptyOtp());
+      setStage("aadhaar_otp");
+      setResendTimer(RESEND_SECONDS);
     } catch (err) {
-      const data = err.response?.data || {};
-      setError(data.message || "Could not send OTP. Please try again.");
+      setError(errorMessage(err, "Could not send OTP. Please try again."));
     } finally {
       setBusy(false);
     }
   };
 
+  // No resend endpoint — a resend starts a fresh verification.
   const handleResendAadhaarOtp = async () => {
     if (resendTimer > 0) return;
     const digits = aadhaarNumber.replace(/\D/g, "");
     setBusy(true);
     try {
-      const res = await resendWorkerAadhaarOtpAPI(digits);
-      if (res?.error_code === "OTP_COOLDOWN") {
-        setResendTimer(res.wait_seconds || RESEND_SECONDS);
-        setError(res.message || "");
-      } else if (isApiFailure(res)) {
-        setError(res?.message || "Unable to resend OTP");
-      } else {
-        setReferenceId(extractReferenceId(res) || referenceId);
-        setResendTimer(RESEND_SECONDS);
-        setAadhaarOtpDigits(emptyOtp());
-        setError("");
-        aadhaarOtpRefs.current[0]?.focus();
-      }
+      const res = await sendIntakeAadhaarOtpAPI(digits);
+      setReferenceId(res?.verificationId || referenceId);
+      setResendTimer(RESEND_SECONDS);
+      setAadhaarOtpDigits(emptyOtp());
+      setError("");
+      aadhaarOtpRefs.current[0]?.focus();
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to resend OTP.");
+      setError(errorMessage(err, "Unable to resend OTP."));
     } finally {
       setBusy(false);
     }
@@ -345,45 +295,32 @@ const AadhaarVerifyModal = ({ isOpen, onClose, onVerified }) => {
     setError("");
     setBusy(true);
     try {
-      const res = await verifyWorkerAadhaarOtpAPI(otp, referenceId);
-      if (isApiFailure(res)) {
-        if (res?.error_code === "VERIFY_FAILED") {
-          setError(
-            "The Aadhaar verification service is temporarily unavailable. Please wait a moment and try again, or skip and fill details manually.",
-          );
-        } else {
-          setError(res?.message || "Invalid OTP, please try again");
-        }
-        return;
-      }
-      const aadhaar = res.data || {};
-      const names = String(aadhaar.name || "")
+      const aadhaar = (await verifyIntakeAadhaarOtpAPI(referenceId, otp)) || {};
+      const names = String(aadhaar.fullName || "")
         .trim()
         .split(/\s+/)
         .filter(Boolean);
-      const aadharDigits =
-        aadhaarNumber.replace(/\D/g, "") ||
-        String(aadhaar.aadhaar_number || aadhaar.aadhar_number || "").replace(
-          /\D/g,
-          "",
-        );
-
       verifiedDataRef.current = {
+        aadhaar_verification_id: aadhaar.verificationId || referenceId,
         mobile_number: mobile.replace(/\D/g, ""),
         first_name: names[0] || "",
-        last_name: names.slice(1).join(" "),
-        date_of_birth: normalizeDobToISO(aadhaar.dob),
+        middle_name: names.length > 2 ? names.slice(1, -1).join(" ") : "",
+        last_name: names.length > 1 ? names[names.length - 1] : "",
+        date_of_birth: aadhaar.dateOfBirth || "",
+        father_name: aadhaar.fatherName || "",
         gender: normalizeGender(aadhaar.gender),
-        father_name: aadhaar.father_name || "",
-        residential_address: aadhaar.address || "",
-        zip: aadhaar.pincode || "",
-        aadhar_number: aadharDigits,
-        state_name: aadhaar.state || "",
-        district_name: aadhaar.district || "",
+        address_line1: aadhaar.addressLine1 || "",
+        address_line2: aadhaar.addressLine2 || "",
+        pincode: aadhaar.pincode || "",
+        state_id: aadhaar.stateId || "",
+        city_id: aadhaar.cityId || "",
+        state_name: aadhaar.stateName || "",
+        district_name: aadhaar.districtName || "",
+        aadhar_number: aadhaarNumber.replace(/\D/g, ""),
       };
       setStage("aadhaar_success");
     } catch (err) {
-      setError(err.response?.data?.message || "Invalid OTP, please try again");
+      setError(errorMessage(err, "Invalid OTP, please try again"));
     } finally {
       setBusy(false);
     }
@@ -665,6 +602,21 @@ const AadhaarVerifyModal = ({ isOpen, onClose, onVerified }) => {
                         className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition hover:border-gray-400"
                       />
                     </div>
+                    <label className="flex items-start gap-2 pt-2 text-sm text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={consentGiven}
+                        onChange={(e) => {
+                          setConsentGiven(e.target.checked);
+                          if (error) setError("");
+                        }}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        The worker consents to verifying their identity with
+                        Aadhaar e-KYC.
+                      </span>
+                    </label>
                   </div>
                 )}
 

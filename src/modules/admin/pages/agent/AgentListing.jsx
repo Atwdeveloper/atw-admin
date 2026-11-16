@@ -31,6 +31,7 @@ import {
   getCitiesByStateAPI,
 } from "../../../../api/admin/adminStaffAPI";
 
+import ActionMenuPortal from "../../../../common/components/ActionMenuPortal";
 const AgentListing = () => {
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
@@ -729,7 +730,7 @@ const AgentListing = () => {
                         </button>
 
                         {openActionMenuId === agent.id && (
-                          <div className="absolute right-0 z-20 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
+                          <ActionMenuPortal className="w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
                             {canView && (
                               <button
                                 onClick={() => {
@@ -791,7 +792,7 @@ const AgentListing = () => {
                                 Delete
                               </button>
                             )}
-                          </div>
+                          </ActionMenuPortal>
                         )}
                       </div>
                     </td>

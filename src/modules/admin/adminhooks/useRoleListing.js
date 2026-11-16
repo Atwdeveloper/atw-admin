@@ -66,8 +66,35 @@ export const useRoleListing = () => {
     );
   }, [allRoles, debouncedFilters.search]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRoles.length / PAGE_SIZE));
-  const roles = filteredRoles.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // GET /admin/roles takes no sort param, but it returns every role, so sorting
+  // the whole list here (before paging) gives the same result as server sorting.
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+  const handleSort = (key) => {
+    setSortConfig((prev) => {
+      if (prev.key !== key) return { key, direction: "asc" };
+      if (prev.direction === "asc") return { key, direction: "desc" };
+      return { key: null, direction: "asc" };
+    });
+    setPage(1);
+  };
+
+  const sortedRoles = useMemo(() => {
+    if (!sortConfig.key) return filteredRoles;
+    const valueOf = (role) => {
+      if (sortConfig.key === "permissions") return role.total_permissions;
+      if (sortConfig.key === "systemRole") return role.systemRole ? 1 : 0;
+      return (role[sortConfig.key] || "").toString().toLowerCase();
+    };
+    const dir = sortConfig.direction === "asc" ? 1 : -1;
+    return [...filteredRoles].sort((a, b) => {
+      const va = valueOf(a);
+      const vb = valueOf(b);
+      return va < vb ? -dir : va > vb ? dir : 0;
+    });
+  }, [filteredRoles, sortConfig]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedRoles.length / PAGE_SIZE));
+  const roles = sortedRoles.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   // Back to page 1 when the search changes or the last page empties.
   useEffect(() => {
@@ -136,6 +163,8 @@ export const useRoleListing = () => {
     filters,
     setFilters,
     handleSearch,
+    sortConfig,
+    handleSort,
     handleClear,
     handleDelete,
     getPermissionCount,

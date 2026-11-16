@@ -6,10 +6,25 @@ import { useNavigate } from "@/lib/navigation";
 import { Building2, Edit2, FileText, Lock, MapPin, Shield, User, X } from "lucide-react";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import {
+  getStaffAddressAPI,
   getStaffBankAPI,
   getStaffKycAPI,
   getStaffProfileAPI,
 } from "../../../../api/adminV1/staffAPI";
+import { getCitiesAPI, getStatesAPI } from "../../../../api/adminV1/geographyAPI";
+
+// The address only carries ids; look up the names for display.
+const resolvePlaceNames = async (address) => {
+  if (!address?.stateId) return {};
+  const [states, cities] = await Promise.all([
+    getStatesAPI().catch(() => []),
+    getCitiesAPI(address.stateId).catch(() => []),
+  ]);
+  return {
+    stateName: states.find((s) => s.id === address.stateId)?.name,
+    cityName: cities.find((c) => c.id === address.cityId)?.name,
+  };
+};
 
 const formatDate = (value, withTime = false) =>
   value
@@ -53,7 +68,7 @@ const maskedNote = (
 const StaffViewModal = ({ staff, isOpen, onClose }) => {
   const navigate = useNavigate();
   const { hasPermission } = useAdminPermissions();
-  const [details, setDetails] = useState(null); // { profile, kyc, bank }
+  const [details, setDetails] = useState(null); // { profile, address, places, kyc, bank }
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -65,11 +80,13 @@ const StaffViewModal = ({ staff, isOpen, onClose }) => {
     setLoading(true);
     Promise.all([
       getStaffProfileAPI(staff.id).catch(() => null),
+      getStaffAddressAPI(staff.id).catch(() => null),
       getStaffKycAPI(staff.id).catch(() => null),
       getStaffBankAPI(staff.id).catch(() => null),
-    ]).then(([profile, kyc, bank]) => {
+    ]).then(async ([profile, address, kyc, bank]) => {
+      const places = await resolvePlaceNames(address);
       if (cancelled) return;
-      setDetails({ profile, kyc, bank });
+      setDetails({ profile, address, places, kyc, bank });
       setLoading(false);
     });
     return () => {
@@ -79,7 +96,7 @@ const StaffViewModal = ({ staff, isOpen, onClose }) => {
 
   if (!isOpen || !staff) return null;
 
-  const { profile, kyc, bank } = details || {};
+  const { profile, address, places, kyc, bank } = details || {};
   const kycMasked = kyc && Object.values(kyc).some((v) => typeof v === "string" && v.includes("*"));
   const bankMasked = bank?.accountNumber?.includes("*");
   const active = staff.status === "ACTIVE";
@@ -160,7 +177,7 @@ const StaffViewModal = ({ staff, isOpen, onClose }) => {
 
             {staff.superAdmin ? (
               <p className="md:col-span-2 text-sm text-gray-500">
-                Profile, KYC and bank details aren't kept for super-admin accounts.
+                Profile, address, KYC and bank details aren't kept for super-admin accounts.
               </p>
             ) : loading || !details ? (
               <div className="md:col-span-2 flex justify-center py-8">
@@ -168,11 +185,17 @@ const StaffViewModal = ({ staff, isOpen, onClose }) => {
               </div>
             ) : (
               <>
-                <Section icon={MapPin} title="Personal">
+                <Section icon={User} title="Personal">
                   <Row label="Date of birth" value={formatDate(profile?.dateOfBirth)} />
                   <Row label="Gender" value={GENDER[profile?.gender]} />
-                  <Row label="Address" value={profile?.addressLine} />
-                  <Row label="Pincode" value={profile?.pincode} />
+                </Section>
+
+                <Section icon={MapPin} title="Address">
+                  <Row label="Line 1" value={address?.line1} />
+                  <Row label="Line 2" value={address?.line2} />
+                  <Row label="City" value={places?.cityName} />
+                  <Row label="State" value={places?.stateName} />
+                  <Row label="Pincode" value={address?.pincode} />
                 </Section>
 
                 <Section icon={FileText} title="KYC" note={kycMasked ? maskedNote : null}>

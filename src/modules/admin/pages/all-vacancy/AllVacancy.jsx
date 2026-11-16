@@ -29,6 +29,7 @@ import { useSortableData } from "../../../../common/hooks/useSortableData";
 import SortableHeader from "../../../../common/components/SortableHeader";
 import VacancyViewModal from "../../components/company/ViewVacancyModal";
 
+import ActionMenuPortal from "../../../../common/components/ActionMenuPortal";
 const VacancyListing = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -797,7 +798,7 @@ const VacancyListing = () => {
                         </button>
 
                         {openActionMenuId === vacancy.id && (
-                          <div className="absolute right-0 z-20 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
+                          <ActionMenuPortal className="w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
                             <button
                               onClick={() => {
                                 setOpenActionMenuId(null);
@@ -910,7 +911,7 @@ const VacancyListing = () => {
                                 Delete
                               </button>
                             )}
-                          </div>
+                          </ActionMenuPortal>
                         )}
                       </div>
                     </td>

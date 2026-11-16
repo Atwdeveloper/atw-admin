@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "@/lib/navigation";
 import {
   Edit2,
-  Trash2,
   Plus,
   Eye,
   CheckCircle,
@@ -17,6 +16,7 @@ import {
   Edit,
   ClipboardList,
   Image as ImageIcon,
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -26,36 +26,17 @@ import {
 } from "../../../../common/utils/motionVariants";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
 import { useDesignationManagement } from "../../adminhooks/useDesignationManagement";
+import { getDesignationAPI } from "../../../../api/adminV1/masterdataAPI";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
-import { useSortableData } from "../../../../common/hooks/useSortableData";
 import Loader from "../../../../common/components/Loader";
 import SortableHeader from "../../../../common/components/SortableHeader";
-import { useLocation, Link } from "@/lib/navigation";
+import { useLocation } from "@/lib/navigation";
 // View Modal for Designation (updated)
 import { Wrench } from "lucide-react";
 
-const DesignationViewModal = ({
-  designation,
-  isOpen,
-  onClose,
-  onEdit,
-  onDelete,
-  onToggleStatus,
-}) => {
-  const formatDate = (dateString) => {
-    if (!dateString) return "Not Provided";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      //   hour: '2-digit',
-      //   minute: '2-digit'
-    });
-  };
-
+const DesignationViewModal = ({ designation, isOpen, onClose, onEdit }) => {
   const renderStatus = () => {
-    const isActive = Number(designation.status) === 1;
+    const isActive = designation.status === "ACTIVE";
     return (
       <span
         className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
@@ -98,9 +79,9 @@ const DesignationViewModal = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-purple-100 dark:bg-purple-900/20 flex items-center justify-center flex-shrink-0">
-                    {designation.image_url ? (
+                    {designation.imageUrl ? (
                       <img
-                        src={designation.image_url}
+                        src={designation.imageUrl}
                         alt={designation.name}
                         className="w-full h-full object-cover"
                       />
@@ -114,9 +95,10 @@ const DesignationViewModal = ({
                     </p>
                     <div className="flex items-center gap-3 mt-1">
                       {renderStatus()}
-                      {designation.industry && (
+                      {designation.industries?.length > 0 && (
                         <span className="text-sm text-slate-500 dark:text-slate-400">
-                          Industry: {designation.industry.name}
+                          {designation.industries.length > 1 ? "Industries" : "Industry"}:{" "}
+                          {designation.industries.map((i) => i.name).join(", ")}
                         </span>
                       )}
                     </div>
@@ -150,29 +132,33 @@ const DesignationViewModal = ({
                       value={
                         <span
                           className={`inline-flex items-center gap-2 ${
-                            Number(designation.status) === 1
+                            designation.status === "ACTIVE"
                               ? "text-emerald-600 dark:text-emerald-400"
                               : "text-red-600 dark:text-red-400"
                           }`}
                         >
-                          {Number(designation.status) === 1 ? (
+                          {designation.status === "ACTIVE" ? (
                             <CheckCircle className="w-4 h-4" />
                           ) : (
                             <XCircle className="w-4 h-4" />
                           )}
-                          {Number(designation.status) === 1
+                          {designation.status === "ACTIVE"
                             ? "Active"
                             : "Inactive"}
                         </span>
                       }
                     />
                     <DetailItem
-                      label="Created At"
-                      value={formatDate(designation.created_at)}
+                      label="Industries"
+                      value={
+                        designation.industries?.length
+                          ? designation.industries.map((i) => i.name).join(", ")
+                          : "—"
+                      }
                     />
                     <DetailItem
-                      label="Last Updated"
-                      value={formatDate(designation.updated_at)}
+                      label="Skill Category"
+                      value={designation.skillCategoryId ? "Assigned" : "Not assigned"}
                     />
                   </div>
                 </Card>
@@ -182,9 +168,6 @@ const DesignationViewModal = ({
             {/* Footer */}
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 px-6 py-4 border-t border-slate-200 dark:border-slate-700 rounded-b-2xl">
               <div className="flex items-center justify-between">
-                {/* <div className="text-sm text-slate-500 dark:text-slate-400">
-                  Last updated: {formatDate(designation.updated_at)}
-                </div> */}
                 <div></div>
                 <div className="flex space-x-3">
                   {onEdit && (
@@ -243,17 +226,20 @@ const DesignationByIndustry = () => {
 
   const {
     designations,
+    industry,
     loading,
+    loadError,
     page,
     totalPages,
     totalRecords,
     filters,
     setFilters,
     setPage,
-    handleSearch,
+    sortConfig,
+    handleSort,
     handleClear,
-    handleDelete,
     handleToggleStatus,
+    handleDelete,
     selectedIds,
     toggleSelectDesignation,
     toggleSelectAll,
@@ -262,13 +248,17 @@ const DesignationByIndustry = () => {
     handleBulkDelete,
   } = useDesignationManagement(industryId);
 
-  const { sortedItems: sortedDesignations, sortConfig, requestSort } =
-    useSortableData(designations);
+  // The server already returns one filtered/sorted page
+  const pageDesignations = designations;
+  const pageIds = pageDesignations.map((d) => d.id);
 
   const [selectedDesignation, setSelectedDesignation] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("all");
+  // Status dropdown is driven straight from the hook's filter
+  const statusFilter = filters.status || "all";
+  const setStatusFilter = (key) =>
+    setFilters((prev) => ({ ...prev, status: key === "all" ? "" : key }));
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showBulkDropdown, setShowBulkDropdown] = useState(false);
   const statusFilterRef = useRef(null);
@@ -276,30 +266,13 @@ const DesignationByIndustry = () => {
   const location = useLocation();
 
   const params = new URLSearchParams(location.search);
-  const industryName = params.get("name") || "Industry";
+  const industryName = industry?.name || params.get("name") || "Industry";
 
   const statusOptions = [
     { key: "all", label: "All Designations" },
-    { key: "1", label: "Active" },
-    { key: "0", label: "Inactive" },
+    { key: "ACTIVE", label: "Active" },
+    { key: "INACTIVE", label: "Inactive" },
   ];
-
-  // Sync local status filter with filters.status
-  useEffect(() => {
-    if (statusFilter === "all") {
-      setFilters((prev) => ({ ...prev, status: "" }));
-    } else {
-      setFilters((prev) => ({ ...prev, status: statusFilter }));
-    }
-  }, [statusFilter, setFilters]);
-
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      handleSearch();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [filters.search, filters.status]);
 
   const handleClickOutside = useCallback((event) => {
     if (
@@ -321,9 +294,17 @@ const DesignationByIndustry = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [handleClickOutside]);
 
+  // The list never carries imageUrl — fetch the single designation for it.
   const openViewModal = (designation) => {
     setSelectedDesignation(designation);
     setIsModalOpen(true);
+    getDesignationAPI(designation.id)
+      .then((full) =>
+        setSelectedDesignation((current) =>
+          current?.id === full.id ? full : current,
+        ),
+      )
+      .catch(() => {});
   };
 
   const closeViewModal = () => {
@@ -332,17 +313,19 @@ const DesignationByIndustry = () => {
   };
 
   const handleClearAll = () => {
-    setFilters({ search: "", status: "" });
-    setStatusFilter("all");
+    handleClear();
     setFiltersVisible(false);
-    handleSearch();
   };
+
+  // Clear button next to search only clears the search text (keeps the status filter)
+  const handleClearSearch = () =>
+    setFilters((prev) => ({ ...prev, search: "" }));
 
   const canView = hasPermission("designation", "view"); // adjust permission key as needed
   const canCreate = hasPermission("designation", "create");
   const canEdit = hasPermission("designation", "edit");
-  const canDelete = hasPermission("designation", "delete");
   const canToggleStatus = hasPermission("designation", "toggle_status");
+  const canDelete = hasPermission("designation", "delete");
   const canViewSkills = hasPermission("skill", "view");
   if (permissionsLoading) {
     return (
@@ -502,11 +485,14 @@ const DesignationByIndustry = () => {
                           setShowBulkDropdown(false);
                           handleBulkDelete();
                         }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 border-t border-gray-100"
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-gray-700 hover:bg-red-50 hover:text-red-700 border-t border-gray-100"
                       >
                         <Trash2 size={16} />
                         Delete
                       </button>
+                    )}
+                    {!canToggleStatus && !canDelete && (
+                      <p className="px-4 py-2 text-sm text-gray-500">No bulk actions available</p>
                     )}
                   </div>
                 )}
@@ -525,7 +511,7 @@ const DesignationByIndustry = () => {
 
                 {!filtersVisible && filters.search && (
                   <button
-                    onClick={handleClear}
+                    onClick={handleClearSearch}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
                   >
                     Clear
@@ -588,10 +574,10 @@ const DesignationByIndustry = () => {
                   <input
                     type="checkbox"
                     checked={
-                      designations.length > 0 &&
-                      selectedIds.length === designations.length
+                      pageIds.length > 0 &&
+                      selectedIds.length === pageIds.length
                     }
-                    onChange={toggleSelectAll}
+                    onChange={() => toggleSelectAll(pageIds)}
                     className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
                 </th>
@@ -599,7 +585,7 @@ const DesignationByIndustry = () => {
                   label="Designation Name"
                   sortKey="name"
                   sortConfig={sortConfig}
-                  onSort={requestSort}
+                  onSort={handleSort}
                 />
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
                   Image
@@ -608,14 +594,7 @@ const DesignationByIndustry = () => {
                   label="Status"
                   sortKey="status"
                   sortConfig={sortConfig}
-                  onSort={requestSort}
-                />
-                <SortableHeader
-                  label="Salary Template"
-                  sortKey="salary_template"
-                  accessor={(d) => (d.salary_template ? 1 : 0)}
-                  sortConfig={sortConfig}
-                  onSort={requestSort}
+                  onSort={handleSort}
                 />
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
                   Actions
@@ -625,20 +604,26 @@ const DesignationByIndustry = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-8">
+                  <td colSpan="5" className="text-center py-8">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
                   </td>
                 </tr>
-              ) : sortedDesignations.length === 0 ? (
+              ) : loadError ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-10 text-gray-500">
+                  <td colSpan="5" className="text-center py-10 text-red-600">
+                    {loadError}
+                  </td>
+                </tr>
+              ) : pageDesignations.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="text-center py-10 text-gray-500">
                     No designations found.
                   </td>
                 </tr>
               ) : (
-                sortedDesignations.map((designation, index) => (
+                pageDesignations.map((designation, index) => (
                   <motion.tr
                     key={designation.id}
                     className="cursor-pointer border-b border-gray-200 hover:bg-gray-50 transition-colors"
@@ -664,9 +649,9 @@ const DesignationByIndustry = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200">
-                        {designation.image_url ? (
+                        {designation.imageUrl ? (
                           <img
-                            src={designation.image_url}
+                            src={designation.imageUrl}
                             alt={designation.name}
                             className="w-full h-full object-cover"
                           />
@@ -680,37 +665,15 @@ const DesignationByIndustry = () => {
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                          Number(designation.status) === 1
+                          designation.status === "ACTIVE"
                             ? "bg-green-100 text-green-800"
                             : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {Number(designation.status) === 1
+                        {designation.status === "ACTIVE"
                           ? "Active"
                           : "Inactive"}
                       </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      {designation.salary_template ? (
-                        <Link
-                          to={`/admin/salary-structure/edit/${designation.salary_template.id}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-all"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                          Created
-                        </Link>
-                      ) : (
-                        <Link
-                          // to="/admin/salary-structure/add"
-                          to={`/admin/salary-structure/add?industry_id=${industryId}&designation_id=${designation.id}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all"
-                        >
-                          <Plus className="w-3.5 h-3.5 text-amber-600" />
-                          Not Created
-                        </Link>
-                      )}
                     </td>
                     <td
                       onClick={(e) => e.stopPropagation()}
@@ -745,7 +708,7 @@ const DesignationByIndustry = () => {
                         <button
                           onClick={() =>
                             navigate(
-                              `/admin/industries/designations/${designation.id}/skills?designationName=${designation.name}&industryId=${industryId}&industryName=${industryName}`,
+                              `/admin/industries/designations/${designation.id}/skills?designationName=${encodeURIComponent(designation.name)}&industryId=${industryId}&industryName=${encodeURIComponent(industryName)}`,
                             )
                           }
                           className="text-gray-600 hover:text-purple-600"
@@ -753,15 +716,6 @@ const DesignationByIndustry = () => {
                         >
                           <Wrench size={18} />
                         </button>
-                        )}
-                        {canDelete && (
-                          <button
-                            onClick={() => handleDelete(designation.id)}
-                            className="text-gray-600 hover:text-red-600"
-                            title="Delete"
-                          >
-                            <Trash2 size={18} />
-                          </button>
                         )}
                         {canToggleStatus && (
                           <button
@@ -772,17 +726,17 @@ const DesignationByIndustry = () => {
                               )
                             }
                             className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 ${
-                              Number(designation.status) === 1
+                              designation.status === "ACTIVE"
                                 ? "bg-red-100 text-red-700 hover:bg-red-200"
                                 : "bg-green-100 text-green-700 hover:bg-green-200"
                             }`}
                             title={
-                              Number(designation.status) === 1
+                              designation.status === "ACTIVE"
                                 ? "Deactivate"
                                 : "Activate"
                             }
                           >
-                            {Number(designation.status) === 1 ? (
+                            {designation.status === "ACTIVE" ? (
                               <>
                                 <XCircle size={14} />
                                 Deactivate
@@ -793,6 +747,17 @@ const DesignationByIndustry = () => {
                                 Activate
                               </>
                             )}
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() =>
+                              handleDelete(designation.id, designation.name)
+                            }
+                            className="text-gray-600 hover:text-red-600"
+                            title="Delete"
+                          >
+                            <Trash2 size={18} />
                           </button>
                         )}
                       </div>
@@ -876,8 +841,6 @@ const DesignationByIndustry = () => {
               )}`,
             )
           }
-          onDelete={handleDelete}
-          onToggleStatus={handleToggleStatus}
         />
       )}
     </motion.div>

@@ -10,11 +10,17 @@ import {
   itemVariants,
 } from "../../../../common/utils/motionVariants";
 import {
-  getDesignationByIdAPI,
+  assignDesignationSkillCategoryAPI,
+  clearDesignationSkillCategoryAPI,
+  getDesignationAPI,
+  getIndustriesAPI,
+  getSkillCategoriesAPI,
+  removeDesignationImageAPI,
   updateDesignationAPI,
-} from "../../../../api/admin/adminDesignationAPI";
-import { getIndustriesAPI } from "../../../../api/admin/adminCompanyAPI";
-import { getSkillCategoriesAPI } from "../../../../api/admin/adminSkillCategoryAPI";
+  uploadDesignationImageAPI,
+  validateIcon,
+} from "../../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
@@ -27,12 +33,14 @@ const EditDesignation = () => {
   const [formData, setFormData] = useState({
     name: "",
     industry_ids: [],
-    primary_industry_id: "",
     skill_category_id: "",
     image: null,
   });
+  // Skill category is saved through its own endpoint, so remember what was loaded.
+  const [savedSkillCategoryId, setSavedSkillCategoryId] = useState("");
   const [imagePreview, setImagePreview] = useState(null);
   const [existingImage, setExistingImage] = useState(null);
+  const [removeImage, setRemoveImage] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -43,48 +51,42 @@ const EditDesignation = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [industriesRes, skillCategoriesRes, designationRes] =
-          await Promise.all([
-            getIndustriesAPI(),
-            getSkillCategoriesAPI(),
-            getDesignationByIdAPI(id),
-          ]);
+        const [industryList, categoryList, designation] = await Promise.all([
+          getIndustriesAPI(),
+          getSkillCategoriesAPI(),
+          getDesignationAPI(id),
+        ]);
 
-        const industriesArray = Array.isArray(industriesRes.data?.data)
-          ? industriesRes.data.data
-          : Array.isArray(industriesRes.data)
-            ? industriesRes.data
-            : [];
-        setIndustries(industriesArray);
-        setSkillCategories(skillCategoriesRes.data?.data || []);
+        // Active options, plus whatever is already assigned even if inactive now
+        const assignedIndustryIds = (designation.industries || []).map((ind) => ind.id);
+        setIndustries(
+          (industryList || []).filter(
+            (i) => i.status === "ACTIVE" || assignedIndustryIds.includes(i.id),
+          ),
+        );
+        setSkillCategories(
+          (categoryList || []).filter(
+            (c) => c.status === "ACTIVE" || c.id === designation.skillCategoryId,
+          ),
+        );
 
-        const designation = designationRes.data.data || designationRes.data;
         setFormData({
           name: designation.name || "",
-          industry_ids: (designation.industries || []).map((ind) => ind.id),
-          primary_industry_id:
-            designation.primary_industry_id ??
-            designation.primary_industry?.id ??
-            "",
-          skill_category_id:
-            designation.skill_category_id ??
-            designation.skill_category?.id ??
-            "",
+          industry_ids: assignedIndustryIds,
+          skill_category_id: designation.skillCategoryId || "",
           image: null,
         });
+        setSavedSkillCategoryId(designation.skillCategoryId || "");
 
-        const currentImage =
-          designation.image_url || designation.image || null;
-        if (currentImage) {
-          setExistingImage(currentImage);
-          setImagePreview(currentImage);
+        if (designation.imageUrl) {
+          setExistingImage(designation.imageUrl);
+          setImagePreview(designation.imageUrl);
         }
       } catch (error) {
-        console.error("Error fetching designation:", error);
         Swal.fire({
           icon: "error",
           title: "Failed to load designation",
-          text: error.response?.data?.message || "Something went wrong",
+          text: apiError(error, "Something went wrong").message,
         });
         navigate("/admin/designations");
       } finally {
@@ -99,7 +101,14 @@ const EditDesignation = () => {
 
     if (name === "image") {
       const file = files[0] || null;
+      const imageError = validateIcon(file);
+      setErrors((prev) => ({ ...prev, image: imageError || "" }));
+      if (imageError) {
+        e.target.value = "";
+        return;
+      }
       setFormData((prev) => ({ ...prev, image: file }));
+      setRemoveImage(false);
       setImagePreview(file ? URL.createObjectURL(file) : existingImage);
       return;
     }
@@ -118,14 +127,14 @@ const EditDesignation = () => {
     }
   };
 
+  const handleRemoveImage = () => {
+    setFormData((prev) => ({ ...prev, image: null }));
+    setRemoveImage(true);
+    setImagePreview(null);
+  };
+
   const handleIndustriesChange = (industryIds) => {
-    setFormData((prev) => ({
-      ...prev,
-      industry_ids: industryIds,
-      primary_industry_id: industryIds.includes(prev.primary_industry_id)
-        ? prev.primary_industry_id
-        : industryIds[0] || "",
-    }));
+    setFormData((prev) => ({ ...prev, industry_ids: industryIds }));
     setErrors((prev) => ({ ...prev, industry_ids: "" }));
   };
 
@@ -134,6 +143,8 @@ const EditDesignation = () => {
 
     if (!formData.name.trim()) {
       newErrors.name = "Designation name is required";
+    } else if (formData.name.trim().length > 150) {
+      newErrors.name = "Designation name must be at most 150 characters";
     } else if (!/^[a-zA-Z0-9\s&-]+$/.test(formData.name)) {
       newErrors.name = "Special characters are not allowed";
     }
@@ -152,61 +163,72 @@ const EditDesignation = () => {
 
     setSubmitting(true);
     try {
-      const payload = new FormData();
-      payload.append("name", formData.name);
-      formData.industry_ids.forEach((industryId) =>
-        payload.append("industry_ids[]", industryId),
-      );
-      if (formData.primary_industry_id) {
-        payload.append("primary_industry_id", formData.primary_industry_id);
-      }
-      if (formData.skill_category_id) {
-        payload.append("skill_category_id", formData.skill_category_id);
-      }
-      if (formData.image) {
-        payload.append("image", formData.image);
-      }
-
-      const response = await updateDesignationAPI(id, payload);
-
-      if (response?.status && response.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Failed to update designation",
-          text: response.message || "Something went wrong",
-        });
-        return;
-      }
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: "Designation updated successfully",
-        timer: 1500,
-        showConfirmButton: false,
+      await updateDesignationAPI(id, {
+        name: formData.name.trim(),
+        industryIds: formData.industry_ids,
       });
-      navigate("/admin/designations");
     } catch (error) {
-      console.error("Error updating designation:", error);
-
-      const validationErrors = error.response?.data?.errors;
-      if (error.response?.status === 422 && validationErrors) {
+      const { code, message, fieldErrors } = apiError(error, "Something went wrong");
+      if (code === "CONFLICT") {
+        setErrors((prev) => ({ ...prev, name: message }));
+      } else if (Object.keys(fieldErrors).length) {
         setErrors((prev) => ({
           ...prev,
-          name: validationErrors.name?.[0] || prev.name,
-          industry_ids: validationErrors.industry_ids?.[0] || prev.industry_ids,
+          name: fieldErrors.name || prev.name,
+          industry_ids: fieldErrors.industryIds || prev.industry_ids,
         }));
-        return;
+      } else {
+        Swal.fire({ icon: "error", title: "Failed to update designation", text: message });
       }
-
-      Swal.fire({
-        icon: "error",
-        title: "Failed to update designation",
-        text: error.response?.data?.message || "Something went wrong",
-      });
-    } finally {
       setSubmitting(false);
+      return;
     }
+
+    // Skill category and image each have their own endpoint; run only what changed.
+    const steps = [];
+    if (formData.skill_category_id !== savedSkillCategoryId) {
+      steps.push([
+        "Skill category",
+        () =>
+          formData.skill_category_id
+            ? assignDesignationSkillCategoryAPI(id, formData.skill_category_id)
+            : clearDesignationSkillCategoryAPI(id),
+      ]);
+    }
+    if (formData.image) {
+      steps.push(["Image", () => uploadDesignationImageAPI(id, formData.image)]);
+    } else if (removeImage && existingImage) {
+      steps.push(["Image", () => removeDesignationImageAPI(id)]);
+    }
+
+    const failures = [];
+    for (const [label, run] of steps) {
+      try {
+        await run();
+      } catch (error) {
+        failures.push(`${label}: ${apiError(error).message}`);
+      }
+    }
+    setSubmitting(false);
+
+    if (failures.length) {
+      // The name/industries are saved; stay here so the rest can be retried.
+      Swal.fire({
+        icon: "warning",
+        title: "Saved, with some problems",
+        html: `The designation was updated, but some changes couldn't be saved:<br><br>${failures.join("<br>")}`,
+      });
+      return;
+    }
+
+    Swal.fire({
+      icon: "success",
+      title: "Success!",
+      text: "Designation updated successfully",
+      timer: 1500,
+      showConfirmButton: false,
+    });
+    navigate("/admin/designations");
   };
 
   if (permissionsLoading || loading) {
@@ -282,6 +304,7 @@ const EditDesignation = () => {
                 errors.name ? "border-red-500" : "border-gray-300"
               }`}
               placeholder="Enter designation name"
+              maxLength={150}
               autoFocus
             />
             {errors.name && (
@@ -308,34 +331,6 @@ const EditDesignation = () => {
             )}
           </div>
 
-          {formData.industry_ids.length > 0 && (
-            <div>
-              <label
-                htmlFor="primary_industry_id"
-                className="block text-sm font-medium text-gray-700 mb-2"
-              >
-                Primary Industry
-              </label>
-              <select
-                id="primary_industry_id"
-                name="primary_industry_id"
-                value={formData.primary_industry_id}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                {industries
-                  .filter((industry) =>
-                    formData.industry_ids.includes(industry.id),
-                  )
-                  .map((industry) => (
-                    <option key={industry.id} value={industry.id}>
-                      {industry.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          )}
-
           <div>
             <label
               htmlFor="image"
@@ -359,14 +354,29 @@ const EditDesignation = () => {
                 type="file"
                 id="image"
                 name="image"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/webp"
                 onChange={handleChange}
                 className="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
+              {imagePreview && (
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="flex-shrink-0 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                >
+                  Remove
+                </button>
+              )}
             </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Leave empty to keep the current image.
-            </p>
+            {errors.image ? (
+              <p className="mt-1 text-sm text-red-600">{errors.image}</p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">
+                {removeImage
+                  ? "The current image will be removed when you save."
+                  : "PNG, JPEG or WEBP, up to 2MB. Leave empty to keep the current image."}
+              </p>
+            )}
           </div>
 
           <div>

@@ -10,20 +10,32 @@ import {
   itemVariants,
 } from "../../../../common/utils/motionVariants";
 import {
-  addMinimumWageAPI,
-  getMinimumWageInitAPI,
-} from "../../../../api/admin/adminMinimumWageAPI";
+  createMinimumWageRateAPI,
+  getSkillCategoriesAPI,
+} from "../../../../api/adminV1/masterdataAPI";
+import { getStatesAPI } from "../../../../api/adminV1/geographyAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
+
+// > 0, up to 8 integer digits and 2 decimals (backend limit)
+export const RATE_PATTERN = /^\d{1,8}(\.\d{1,2})?$/;
+
+export const validateRate = (value) => {
+  if (!String(value).trim()) return "Minimum daily rate is required";
+  if (!RATE_PATTERN.test(String(value).trim()) || Number(value) <= 0)
+    return "Enter a positive rate with at most 8 digits and 2 decimals";
+  return "";
+};
 
 const AddMinimumWage = () => {
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
   const [formData, setFormData] = useState({
-    state_id: "",
-    skill_category_id: "",
-    min_daily_rate: "",
-    is_active: 1,
+    stateId: "",
+    skillCategoryId: "",
+    minDailyRate: "",
+    effectiveFrom: "",
   });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -35,15 +47,18 @@ const AddMinimumWage = () => {
     const fetchInit = async () => {
       try {
         setInitLoading(true);
-        const response = await getMinimumWageInitAPI();
-        setStates(response.data?.states || []);
-        setSkillCategories(response.data?.skill_categories || []);
+        const [stateList, categoryList] = await Promise.all([
+          getStatesAPI(),
+          getSkillCategoriesAPI(),
+        ]);
+        setStates(stateList || []);
+        // Only active categories are offered for new rates
+        setSkillCategories((categoryList || []).filter((c) => c.status === "ACTIVE"));
       } catch (error) {
-        console.error("Error fetching form data:", error);
         Swal.fire({
           icon: "error",
           title: "Failed to load form data",
-          text: error.response?.data?.message || "Something went wrong",
+          text: apiError(error).message,
         });
       } finally {
         setInitLoading(false);
@@ -61,19 +76,16 @@ const AddMinimumWage = () => {
   const validate = () => {
     const newErrors = {};
 
-    if (!formData.state_id) {
-      newErrors.state_id = "State is required";
+    if (!formData.stateId) {
+      newErrors.stateId = "State is required";
     }
-    if (!formData.skill_category_id) {
-      newErrors.skill_category_id = "Skill category is required";
+    if (!formData.skillCategoryId) {
+      newErrors.skillCategoryId = "Skill category is required";
     }
-    if (!formData.min_daily_rate) {
-      newErrors.min_daily_rate = "Minimum daily rate is required";
-    } else if (
-      isNaN(formData.min_daily_rate) ||
-      Number(formData.min_daily_rate) <= 0
-    ) {
-      newErrors.min_daily_rate = "Enter a valid positive rate";
+    const rateError = validateRate(formData.minDailyRate);
+    if (rateError) newErrors.minDailyRate = rateError;
+    if (!formData.effectiveFrom) {
+      newErrors.effectiveFrom = "Effective date is required";
     }
 
     setErrors(newErrors);
@@ -86,21 +98,12 @@ const AddMinimumWage = () => {
 
     setSubmitting(true);
     try {
-      const response = await addMinimumWageAPI({
-        state_id: formData.state_id,
-        skill_category_id: formData.skill_category_id,
-        min_daily_rate: formData.min_daily_rate,
-        is_active: formData.is_active,
+      await createMinimumWageRateAPI({
+        stateId: formData.stateId,
+        skillCategoryId: formData.skillCategoryId,
+        minDailyRate: Number(formData.minDailyRate),
+        effectiveFrom: formData.effectiveFrom,
       });
-
-      if (response?.status && response.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Failed to add minimum wage rate",
-          text: response.message || "Something went wrong",
-        });
-        return;
-      }
 
       Swal.fire({
         icon: "success",
@@ -111,25 +114,21 @@ const AddMinimumWage = () => {
       });
       navigate("/admin/minimum-wage");
     } catch (error) {
-      console.error("Error adding minimum wage rate:", error);
-
-      const validationErrors = error.response?.data?.errors;
-      if (error.response?.status === 422 && validationErrors) {
-        setErrors((prev) => ({
-          ...prev,
-          state_id: validationErrors.state_id?.[0] || prev.state_id,
-          skill_category_id:
-            validationErrors.skill_category_id?.[0] || prev.skill_category_id,
-          min_daily_rate:
-            validationErrors.min_daily_rate?.[0] || prev.min_daily_rate,
-        }));
+      const { code, message, fieldErrors } = apiError(error);
+      if (code === "CONFLICT") {
+        // An active rate already exists for this state/category/date
+        setErrors((prev) => ({ ...prev, effectiveFrom: message }));
+        return;
+      }
+      if (Object.keys(fieldErrors).length) {
+        setErrors((prev) => ({ ...prev, ...fieldErrors }));
         return;
       }
 
       Swal.fire({
         icon: "error",
         title: "Failed to add minimum wage rate",
-        text: error.response?.data?.message || "Something went wrong",
+        text: message,
       });
     } finally {
       setSubmitting(false);
@@ -185,18 +184,18 @@ const AddMinimumWage = () => {
         >
           <div>
             <label
-              htmlFor="state_id"
+              htmlFor="stateId"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
               State <span className="text-red-500">*</span>
             </label>
             <select
-              id="state_id"
-              name="state_id"
-              value={formData.state_id}
+              id="stateId"
+              name="stateId"
+              value={formData.stateId}
               onChange={handleChange}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.state_id ? "border-red-500" : "border-gray-300"
+                errors.stateId ? "border-red-500" : "border-gray-300"
               }`}
             >
               <option value="">Select state</option>
@@ -206,25 +205,25 @@ const AddMinimumWage = () => {
                 </option>
               ))}
             </select>
-            {errors.state_id && (
-              <p className="mt-1 text-sm text-red-600">{errors.state_id}</p>
+            {errors.stateId && (
+              <p className="mt-1 text-sm text-red-600">{errors.stateId}</p>
             )}
           </div>
 
           <div>
             <label
-              htmlFor="skill_category_id"
+              htmlFor="skillCategoryId"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
               Skill Category <span className="text-red-500">*</span>
             </label>
             <select
-              id="skill_category_id"
-              name="skill_category_id"
-              value={formData.skill_category_id}
+              id="skillCategoryId"
+              name="skillCategoryId"
+              value={formData.skillCategoryId}
               onChange={handleChange}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.skill_category_id ? "border-red-500" : "border-gray-300"
+                errors.skillCategoryId ? "border-red-500" : "border-gray-300"
               }`}
             >
               <option value="">Select skill category</option>
@@ -234,72 +233,65 @@ const AddMinimumWage = () => {
                 </option>
               ))}
             </select>
-            {errors.skill_category_id && (
+            {errors.skillCategoryId && (
               <p className="mt-1 text-sm text-red-600">
-                {errors.skill_category_id}
+                {errors.skillCategoryId}
               </p>
             )}
           </div>
 
           <div>
             <label
-              htmlFor="min_daily_rate"
+              htmlFor="minDailyRate"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
               Minimum Daily Rate (₹) <span className="text-red-500">*</span>
             </label>
             <input
               type="number"
-              id="min_daily_rate"
-              name="min_daily_rate"
+              id="minDailyRate"
+              name="minDailyRate"
               min="0"
               step="0.01"
-              value={formData.min_daily_rate}
+              value={formData.minDailyRate}
               onChange={handleChange}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.min_daily_rate ? "border-red-500" : "border-gray-300"
+                errors.minDailyRate ? "border-red-500" : "border-gray-300"
               }`}
               placeholder="Enter minimum daily rate"
             />
-            {errors.min_daily_rate && (
+            {errors.minDailyRate && (
               <p className="mt-1 text-sm text-red-600">
-                {errors.min_daily_rate}
+                {errors.minDailyRate}
               </p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status
+            <label
+              htmlFor="effectiveFrom"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              Effective From <span className="text-red-500">*</span>
             </label>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="is_active"
-                  value="1"
-                  checked={Number(formData.is_active) === 1}
-                  onChange={() =>
-                    setFormData((prev) => ({ ...prev, is_active: 1 }))
-                  }
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span>Active</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="is_active"
-                  value="0"
-                  checked={Number(formData.is_active) === 0}
-                  onChange={() =>
-                    setFormData((prev) => ({ ...prev, is_active: 0 }))
-                  }
-                  className="w-4 h-4 text-blue-600"
-                />
-                <span>Inactive</span>
-              </label>
-            </div>
+            <input
+              type="date"
+              id="effectiveFrom"
+              name="effectiveFrom"
+              value={formData.effectiveFrom}
+              onChange={handleChange}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                errors.effectiveFrom ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.effectiveFrom ? (
+              <p className="mt-1 text-sm text-red-600">{errors.effectiveFrom}</p>
+            ) : (
+              <p className="mt-1 text-xs text-gray-500">
+                The date this rate takes effect, as per the government notification.
+                Rates can't be edited later — a change is added as a new dated version.
+              </p>
+            )}
           </div>
 
           <div className="flex justify-end gap-3">

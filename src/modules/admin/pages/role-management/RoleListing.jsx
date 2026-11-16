@@ -20,7 +20,6 @@ import { useRoleListing } from "../../adminhooks/useRoleListing";
 import ViewRoleModal from "../../components/role-management/ViewRoleModal";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
-import { useSortableData } from "../../../../common/hooks/useSortableData";
 import SortableHeader from "../../../../common/components/SortableHeader";
 
 const RoleListing = () => {
@@ -45,10 +44,11 @@ const RoleListing = () => {
     handleDelete,
 
     getPermissionCount,
+    sortConfig,
+    handleSort,
   } = useRoleListing();
+  const sortedRoles = roles; // already sorted (whole list) and paged by the hook
 
-  const { sortedItems: sortedRoles, sortConfig, requestSort } =
-    useSortableData(roles);
 
   const roleTypeRef = useRef(null);
   const statusRef = useRef(null);
@@ -194,26 +194,26 @@ const RoleListing = () => {
                   label="Role Title"
                   sortKey="profile_name"
                   sortConfig={sortConfig}
-                  onSort={requestSort}
+                  onSort={handleSort}
                 />
                 <SortableHeader
                   label="Description"
                   sortKey="description"
                   sortConfig={sortConfig}
-                  onSort={requestSort}
+                  onSort={handleSort}
                 />
                 <SortableHeader
                   label="Permissions"
                   sortKey="permissions"
                   accessor={(role) => getPermissionCount(role.permissions)}
                   sortConfig={sortConfig}
-                  onSort={requestSort}
+                  onSort={handleSort}
                 />
                 <SortableHeader
                   label="Type"
                   sortKey="systemRole"
                   sortConfig={sortConfig}
-                  onSort={requestSort}
+                  onSort={handleSort}
                 />
                 {/* "Status", */}
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">

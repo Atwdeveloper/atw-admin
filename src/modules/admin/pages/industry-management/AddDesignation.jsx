@@ -10,30 +10,20 @@ import {
   containerVariants,
   itemVariants,
 } from "../../../../common/utils/motionVariants";
-// Old, industry-unaware add endpoint — replaced by addDesignationByIndustryAPI below.
-// import { addDesignationAPI } from "../../../../api/admin/adminDesignationAPI";
-import { addDesignationByIndustryAPI } from "../../../../api/admin/adminDesignationAPI";
-import { getMinimumWageInitAPI } from "../../../../api/admin/adminMinimumWageAPI";
+import {
+  ICON_TYPES,
+  createDesignationAPI,
+  getSkillCategoriesAPI,
+  setDesignationStatusAPI,
+  uploadDesignationImageAPI,
+  validateIcon,
+} from "../../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
 
-// Backend validation errors (e.g. an invalid image file) arrive as
-// `{ message: "Validation failed.", data: { image: ["..."] } }` — the generic
-// `message` alone hides the actual reason, so prefer the first field-specific
-// error when one is present.
-const extractApiErrorMessage = (payload, fallback = "Something went wrong") => {
-  const data = payload?.data;
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    const firstKey = Object.keys(data)[0];
-    if (firstKey) {
-      const value = data[firstKey];
-      const firstMessage = Array.isArray(value) ? value[0] : value;
-      if (firstMessage) return firstMessage;
-    }
-  }
-  return payload?.message || fallback;
-};
+const NAME_MAX = 150;
 
 const AddDesignation = () => {
   const { id: industryId } = useParams();
@@ -44,31 +34,24 @@ const AddDesignation = () => {
 
   const [formData, setFormData] = useState({
     name: "",
-    skill_category_id: "",
-    status: 1,
+    skillCategoryId: "",
+    status: "ACTIVE",
     image: null,
   });
   const [imagePreview, setImagePreview] = useState(null);
-  const [errors, setErrors] = useState({
-    name: "",
-  });
+  const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [skillCategories, setSkillCategories] = useState([]);
   const [initLoading, setInitLoading] = useState(true);
 
+  const listingPath = `/admin/industries/designations/${industryId}?name=${encodeURIComponent(industryName)}`;
+
   useEffect(() => {
-    const fetchInit = async () => {
-      try {
-        setInitLoading(true);
-        const response = await getMinimumWageInitAPI();
-        setSkillCategories(response.data?.skill_categories || []);
-      } catch (error) {
-        console.error("Error fetching skill categories:", error);
-      } finally {
-        setInitLoading(false);
-      }
-    };
-    fetchInit();
+    // Needs skill_category.view; without it the select just stays "Not assigned".
+    getSkillCategoriesAPI()
+      .then((list) => setSkillCategories((list || []).filter((c) => c.status === "ACTIVE")))
+      .catch(() => setSkillCategories([]))
+      .finally(() => setInitLoading(false));
   }, []);
 
   const handleChange = (e) => {
@@ -76,8 +59,11 @@ const AddDesignation = () => {
 
     if (name === "image") {
       const file = files[0] || null;
-      setFormData((prev) => ({ ...prev, image: file }));
-      setImagePreview(file ? URL.createObjectURL(file) : null);
+      const iconError = validateIcon(file);
+      setErrors((prev) => ({ ...prev, image: iconError || "" }));
+      setFormData((prev) => ({ ...prev, image: iconError ? null : file }));
+      setImagePreview(file && !iconError ? URL.createObjectURL(file) : null);
+      if (iconError) e.target.value = "";
       return;
     }
 
@@ -87,80 +73,89 @@ const AddDesignation = () => {
     }));
 
     if (name === "name") {
-      if (value && !/^[a-zA-Z0-9\s]+$/.test(value)) {
-        setErrors((prev) => ({
-          ...prev,
-          name: "Special characters are not allowed",
-        }));
-      } else {
-        setErrors((prev) => ({
-          ...prev,
-          name: "",
-        }));
-      }
+      setErrors((prev) => ({ ...prev, name: "" }));
     }
   };
+
   const validate = () => {
     const newErrors = {};
 
     if (!formData.name.trim()) {
       newErrors.name = "Designation name is required";
-    } else if (!/^[a-zA-Z0-9\s]+$/.test(formData.name)) {
-      newErrors.name = "Special characters are not allowed";
+    } else if (formData.name.trim().length > NAME_MAX) {
+      newErrors.name = `Designation name must be at most ${NAME_MAX} characters`;
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
 
     setSubmitting(true);
+    let created;
     try {
-      // Old call, kept for reference:
-      // await addDesignationAPI(formData);
-      const payload = new FormData();
-      payload.append("name", formData.name);
-      if (formData.skill_category_id) {
-        payload.append("skill_category_id", formData.skill_category_id);
-      }
-      payload.append("status", formData.status);
-      if (formData.image) {
-        payload.append("image", formData.image);
-      }
-      const response = await addDesignationByIndustryAPI(industryId, payload);
-
-      if (response?.status && response.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Failed to add designation",
-          text: extractApiErrorMessage(response),
-        });
-        return;
-      }
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: "Designation added successfully",
-        timer: 1500,
-        showConfirmButton: false,
+      created = await createDesignationAPI({
+        name: formData.name.trim(),
+        industryIds: [industryId],
+        skillCategoryId: formData.skillCategoryId || null,
       });
-      // navigate(`/admin/industries/designations/${industryId}`);
-      navigate(
-        `/admin/industries/designations/${industryId}?name=${encodeURIComponent(industryName)}`,
-      );
     } catch (error) {
-      console.error("Error adding designation:", error);
+      const { code, message, fieldErrors } = apiError(error, "Failed to add designation");
+      const nameError =
+        fieldErrors.name || (code === "CONFLICT" ? message : "");
+      if (nameError) setErrors((prev) => ({ ...prev, name: nameError }));
       Swal.fire({
         icon: "error",
         title: "Failed to add designation",
-        text: extractApiErrorMessage(error.response?.data),
+        text: nameError || message,
       });
-    } finally {
       setSubmitting(false);
+      return;
     }
+
+    // Follow-up calls: new designations always start ACTIVE, and the icon is
+    // its own upload. The designation exists either way, so report problems
+    // and send the admin to its edit page to retry.
+    const problems = [];
+    if (formData.status === "INACTIVE") {
+      try {
+        await setDesignationStatusAPI(created.id, "INACTIVE");
+      } catch (error) {
+        problems.push(`Status: ${apiError(error).message}`);
+      }
+    }
+    if (formData.image) {
+      try {
+        await uploadDesignationImageAPI(created.id, formData.image);
+      } catch (error) {
+        problems.push(`Image: ${apiError(error).message}`);
+      }
+    }
+    setSubmitting(false);
+
+    if (problems.length) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Designation added, with some problems",
+        html: `${problems.join("<br>")}<br><br>You can fix this from Edit Designation.`,
+      });
+      navigate(
+        `/admin/industries/designations/${industryId}/edit/${created.id}?name=${encodeURIComponent(industryName)}`,
+      );
+      return;
+    }
+
+    Swal.fire({
+      icon: "success",
+      title: "Success!",
+      text: "Designation added successfully",
+      timer: 1500,
+      showConfirmButton: false,
+    });
+    navigate(listingPath);
   };
 
   if (permissionsLoading || initLoading) {
@@ -182,14 +177,7 @@ const AddDesignation = () => {
             You don't have permission to add designations.
           </p>
           <button
-            // onClick={() => navigate(`/admin/industries/designations/${industryId}`)}
-            onClick={() =>
-              navigate(
-                `/admin/industries/designations/${industryId}?name=${encodeURIComponent(
-                  industryName,
-                )}`,
-              )
-            }
+            onClick={() => navigate(listingPath)}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             Go Back
@@ -209,23 +197,12 @@ const AddDesignation = () => {
       <Breadcrumb
         items={[
           { label: "Industries", path: "/admin/industries" },
-          {
-            label: industryName,
-            path: `/admin/industries/designations/${industryId}?name=${encodeURIComponent(
-              industryName,
-            )}`,
-          },
+          { label: industryName, path: listingPath },
           { label: "Add Designation" },
         ]}
       />
       <motion.div className="" variants={itemVariants}>
         <div className="flex items-center gap-4 mb-6">
-          {/* <button
-            onClick={() => navigate(`/admin/industries/designations/${industryId}`)}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-700" />
-          </button> */}
           <h1 className="text-2xl font-bold text-gray-800">
             Add New Designation
           </h1>
@@ -248,7 +225,7 @@ const AddDesignation = () => {
               name="name"
               value={formData.name}
               onChange={handleChange}
-              onBlur={() => validate()}
+              maxLength={NAME_MAX}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                 errors.name ? "border-red-500" : "border-gray-300"
               }`}
@@ -262,15 +239,15 @@ const AddDesignation = () => {
 
           <div>
             <label
-              htmlFor="skill_category_id"
+              htmlFor="skillCategoryId"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
               Skill Category
             </label>
             <select
-              id="skill_category_id"
-              name="skill_category_id"
-              value={formData.skill_category_id}
+              id="skillCategoryId"
+              name="skillCategoryId"
+              value={formData.skillCategoryId}
               onChange={handleChange}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
@@ -281,6 +258,9 @@ const AddDesignation = () => {
                 </option>
               ))}
             </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Used to look up the minimum wage for this designation.
+            </p>
           </div>
 
           <div>
@@ -306,11 +286,16 @@ const AddDesignation = () => {
                 type="file"
                 id="image"
                 name="image"
-                accept="image/*"
+                accept={ICON_TYPES.join(",")}
                 onChange={handleChange}
                 className="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
             </div>
+            {errors.image ? (
+              <p className="mt-1 text-sm text-red-600">{errors.image}</p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">PNG, JPEG or WEBP, up to 2MB.</p>
+            )}
           </div>
 
           <div>
@@ -322,10 +307,10 @@ const AddDesignation = () => {
                 <input
                   type="radio"
                   name="status"
-                  value="1"
-                  checked={Number(formData.status) === 1}
+                  value="ACTIVE"
+                  checked={formData.status === "ACTIVE"}
                   onChange={() =>
-                    setFormData((prev) => ({ ...prev, status: 1 }))
+                    setFormData((prev) => ({ ...prev, status: "ACTIVE" }))
                   }
                   className="w-4 h-4 text-blue-600"
                 />
@@ -335,10 +320,10 @@ const AddDesignation = () => {
                 <input
                   type="radio"
                   name="status"
-                  value="0"
-                  checked={Number(formData.status) === 0}
+                  value="INACTIVE"
+                  checked={formData.status === "INACTIVE"}
                   onChange={() =>
-                    setFormData((prev) => ({ ...prev, status: 0 }))
+                    setFormData((prev) => ({ ...prev, status: "INACTIVE" }))
                   }
                   className="w-4 h-4 text-blue-600"
                 />
@@ -350,14 +335,7 @@ const AddDesignation = () => {
           <div className="flex justify-end gap-3">
             <button
               type="button"
-              // onClick={() => navigate(`/admin/industries/designations/${industryId}`)}
-              onClick={() =>
-                navigate(
-                  `/admin/industries/designations/${industryId}?name=${encodeURIComponent(
-                    industryName,
-                  )}`,
-                )
-              }
+              onClick={() => navigate(listingPath)}
               className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
             >
               Cancel

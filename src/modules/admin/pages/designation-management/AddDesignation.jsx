@@ -9,9 +9,14 @@ import {
   containerVariants,
   itemVariants,
 } from "../../../../common/utils/motionVariants";
-import { addDesignationAPI } from "../../../../api/admin/adminDesignationAPI";
-import { getIndustriesAPI } from "../../../../api/admin/adminCompanyAPI";
-import { getSkillCategoriesAPI } from "../../../../api/admin/adminSkillCategoryAPI";
+import {
+  createDesignationAPI,
+  getIndustriesAPI,
+  getSkillCategoriesAPI,
+  uploadDesignationImageAPI,
+  validateIcon,
+} from "../../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
@@ -23,7 +28,6 @@ const AddDesignation = () => {
   const [formData, setFormData] = useState({
     name: "",
     industry_ids: [],
-    primary_industry_id: "",
     skill_category_id: "",
     image: null,
   });
@@ -38,24 +42,18 @@ const AddDesignation = () => {
     const fetchInit = async () => {
       try {
         setInitLoading(true);
-        const [industriesRes, skillCategoriesRes] = await Promise.all([
+        const [industryList, categoryList] = await Promise.all([
           getIndustriesAPI(),
           getSkillCategoriesAPI(),
         ]);
-
-        const industriesArray = Array.isArray(industriesRes.data?.data)
-          ? industriesRes.data.data
-          : Array.isArray(industriesRes.data)
-            ? industriesRes.data
-            : [];
-        setIndustries(industriesArray);
-        setSkillCategories(skillCategoriesRes.data?.data || []);
+        // Only active entries can be picked for a new designation
+        setIndustries((industryList || []).filter((i) => i.status === "ACTIVE"));
+        setSkillCategories((categoryList || []).filter((c) => c.status === "ACTIVE"));
       } catch (error) {
-        console.error("Error fetching form data:", error);
         Swal.fire({
           icon: "error",
           title: "Failed to load form data",
-          text: error.response?.data?.message || "Something went wrong",
+          text: apiError(error, "Something went wrong").message,
         });
       } finally {
         setInitLoading(false);
@@ -69,6 +67,12 @@ const AddDesignation = () => {
 
     if (name === "image") {
       const file = files[0] || null;
+      const imageError = validateIcon(file);
+      setErrors((prev) => ({ ...prev, image: imageError || "" }));
+      if (imageError) {
+        e.target.value = "";
+        return;
+      }
       setFormData((prev) => ({ ...prev, image: file }));
       setImagePreview(file ? URL.createObjectURL(file) : null);
       return;
@@ -89,13 +93,7 @@ const AddDesignation = () => {
   };
 
   const handleIndustriesChange = (industryIds) => {
-    setFormData((prev) => ({
-      ...prev,
-      industry_ids: industryIds,
-      primary_industry_id: industryIds.includes(prev.primary_industry_id)
-        ? prev.primary_industry_id
-        : industryIds[0] || "",
-    }));
+    setFormData((prev) => ({ ...prev, industry_ids: industryIds }));
     setErrors((prev) => ({ ...prev, industry_ids: "" }));
   };
 
@@ -104,6 +102,8 @@ const AddDesignation = () => {
 
     if (!formData.name.trim()) {
       newErrors.name = "Designation name is required";
+    } else if (formData.name.trim().length > 150) {
+      newErrors.name = "Designation name must be at most 150 characters";
     } else if (!/^[a-zA-Z0-9\s&-]+$/.test(formData.name)) {
       newErrors.name = "Special characters are not allowed";
     }
@@ -121,62 +121,54 @@ const AddDesignation = () => {
     if (!validate()) return;
 
     setSubmitting(true);
+    let created;
     try {
-      const payload = new FormData();
-      payload.append("name", formData.name);
-      formData.industry_ids.forEach((id) =>
-        payload.append("industry_ids[]", id),
-      );
-      if (formData.primary_industry_id) {
-        payload.append("primary_industry_id", formData.primary_industry_id);
-      }
-      if (formData.skill_category_id) {
-        payload.append("skill_category_id", formData.skill_category_id);
-      }
-      if (formData.image) {
-        payload.append("image", formData.image);
-      }
-
-      const response = await addDesignationAPI(payload);
-
-      if (response?.status && response.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Failed to add designation",
-          text: response.message || "Something went wrong",
-        });
-        return;
-      }
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: "Designation added successfully",
-        timer: 1500,
-        showConfirmButton: false,
+      created = await createDesignationAPI({
+        name: formData.name.trim(),
+        industryIds: formData.industry_ids,
+        skillCategoryId: formData.skill_category_id || null,
       });
-      navigate("/admin/designations");
     } catch (error) {
-      console.error("Error adding designation:", error);
-
-      const validationErrors = error.response?.data?.errors;
-      if (error.response?.status === 422 && validationErrors) {
+      const { code, message, fieldErrors } = apiError(error, "Something went wrong");
+      if (code === "CONFLICT") {
+        setErrors((prev) => ({ ...prev, name: message }));
+      } else if (Object.keys(fieldErrors).length) {
         setErrors((prev) => ({
           ...prev,
-          name: validationErrors.name?.[0] || prev.name,
-          industry_ids: validationErrors.industry_ids?.[0] || prev.industry_ids,
+          name: fieldErrors.name || prev.name,
+          industry_ids: fieldErrors.industryIds || prev.industry_ids,
         }));
+      } else {
+        Swal.fire({ icon: "error", title: "Failed to add designation", text: message });
+      }
+      setSubmitting(false);
+      return;
+    }
+
+    // The icon is a separate upload; the designation already exists if it fails.
+    if (formData.image) {
+      try {
+        await uploadDesignationImageAPI(created.id, formData.image);
+      } catch (error) {
+        await Swal.fire({
+          icon: "warning",
+          title: "Designation added, image not saved",
+          text: `${apiError(error, "The image couldn't be uploaded.").message} You can try again from Edit.`,
+        });
+        navigate(`/admin/designations/edit/${created.id}`);
         return;
       }
-
-      Swal.fire({
-        icon: "error",
-        title: "Failed to add designation",
-        text: error.response?.data?.message || "Something went wrong",
-      });
-    } finally {
-      setSubmitting(false);
     }
+
+    setSubmitting(false);
+    Swal.fire({
+      icon: "success",
+      title: "Success!",
+      text: "Designation added successfully",
+      timer: 1500,
+      showConfirmButton: false,
+    });
+    navigate("/admin/designations");
   };
 
   if (permissionsLoading || initLoading) {
@@ -250,6 +242,7 @@ const AddDesignation = () => {
                 errors.name ? "border-red-500" : "border-gray-300"
               }`}
               placeholder="Enter designation name"
+              maxLength={150}
               autoFocus
             />
             {errors.name && (
@@ -276,34 +269,6 @@ const AddDesignation = () => {
             )}
           </div>
 
-          {formData.industry_ids.length > 0 && (
-            <div>
-              <label
-                htmlFor="primary_industry_id"
-                className="block text-sm font-medium text-gray-700 mb-2"
-              >
-                Primary Industry
-              </label>
-              <select
-                id="primary_industry_id"
-                name="primary_industry_id"
-                value={formData.primary_industry_id}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                {industries
-                  .filter((industry) =>
-                    formData.industry_ids.includes(industry.id),
-                  )
-                  .map((industry) => (
-                    <option key={industry.id} value={industry.id}>
-                      {industry.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          )}
-
           <div>
             <label
               htmlFor="image"
@@ -327,11 +292,16 @@ const AddDesignation = () => {
                 type="file"
                 id="image"
                 name="image"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/webp"
                 onChange={handleChange}
                 className="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
             </div>
+            {errors.image ? (
+              <p className="mt-1 text-sm text-red-600">{errors.image}</p>
+            ) : (
+              <p className="mt-1 text-xs text-gray-500">PNG, JPEG or WEBP, up to 2MB</p>
+            )}
           </div>
 
           <div>

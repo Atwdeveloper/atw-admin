@@ -86,9 +86,14 @@ const StaffForm = ({ mode = "create", staffId }) => {
     form,
     errors,
     update,
+    updateState,
     toggleRole,
     roles,
     rolesError,
+    states,
+    cities,
+    citiesLoading,
+    geoError,
     staff,
     loading,
     isSubmitting,
@@ -263,14 +268,15 @@ const StaffForm = ({ mode = "create", staffId }) => {
               variants={itemVariants}
               className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-800"
             >
-              This is a super-admin account. Profile, KYC and bank details can't be edited for super-admins.
+              This is a super-admin account. Profile, address, KYC and bank details can't be edited for
+              super-admins.
             </motion.div>
           )}
 
           {showExtras && (
             <>
               {/* PROFILE */}
-              <Card icon={MapPin} title="Personal Details" subtitle="Optional">
+              <Card icon={User} title="Personal Details" subtitle="Optional">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   <Field label="Date of Birth" error={errors.dateOfBirth} icon={Calendar}>
                     {text("dateOfBirth", { icon: Calendar, type: "date" })}
@@ -288,11 +294,55 @@ const StaffForm = ({ mode = "create", staffId }) => {
                       <option value="OTHER">Other</option>
                     </select>
                   </Field>
-                  <div className="md:col-span-2">
-                    <Field label="Address" error={errors.addressLine} icon={MapPin}>
-                      {text("addressLine", { icon: MapPin, placeholder: "House, street, city", maxLength: 255 })}
+                </div>
+              </Card>
+
+              {/* ADDRESS */}
+              <Card icon={MapPin} title="Address" subtitle="Optional · address lines stored encrypted">
+                {geoError && <p className="text-sm text-amber-700 mb-4">{geoError}</p>}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="md:col-span-2 lg:col-span-3">
+                    <Field label="Address Line 1" error={errors.line1} icon={MapPin}>
+                      {text("line1", { icon: MapPin, placeholder: "House / flat, street", maxLength: 255 })}
                     </Field>
                   </div>
+                  <div className="md:col-span-2 lg:col-span-3">
+                    <Field label="Address Line 2" error={errors.line2} icon={MapPin}>
+                      {text("line2", { icon: MapPin, placeholder: "Area, landmark", maxLength: 255 })}
+                    </Field>
+                  </div>
+                  <Field label="State" error={errors.stateId}>
+                    <select
+                      value={form.stateId}
+                      onChange={(e) => updateState(e.target.value)}
+                      disabled={isSubmitting}
+                      className={inputClass(errors.stateId, isSubmitting, false)}
+                    >
+                      <option value="">Select state</option>
+                      {states.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="City" error={errors.cityId}>
+                    <select
+                      value={form.cityId}
+                      onChange={(e) => update("cityId", e.target.value)}
+                      disabled={isSubmitting || !form.stateId || citiesLoading}
+                      className={inputClass(errors.cityId, isSubmitting || !form.stateId || citiesLoading, false)}
+                    >
+                      <option value="">
+                        {!form.stateId ? "Select a state first" : citiesLoading ? "Loading..." : "Select city"}
+                      </option>
+                      {cities.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
                   <Field label="Pincode" error={errors.pincode} icon={Hash}>
                     {text("pincode", {
                       icon: Hash,

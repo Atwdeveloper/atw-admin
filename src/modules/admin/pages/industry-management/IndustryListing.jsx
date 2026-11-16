@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "@/lib/navigation";
 import {
   Edit2,
-  Trash2,
   Plus,
   Eye,
   CheckCircle,
@@ -20,6 +19,7 @@ import {
   Users,
   TrendingUp,
   Image as ImageIcon,
+  Trash2,
 } from "lucide-react";
 import {
   containerVariants,
@@ -30,6 +30,7 @@ import { useIndustryManagement } from "../../adminhooks/useIndustryManagement";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import SortableHeader from "../../../../common/components/SortableHeader";
+import { getIndustryAPI } from "../../../../api/adminV1/masterdataAPI";
 
 // ====================== UPDATED MODAL ======================
 const IndustryViewModal = ({
@@ -37,25 +38,24 @@ const IndustryViewModal = ({
   isOpen,
   onClose,
   onEdit,
-  onDelete,
-  onToggleStatus,
+  showDesignations,
 }) => {
-  const navigate = useNavigate();
-
-  const formatDate = (dateString) => {
-    if (!dateString) return "Not Provided";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      // hour: '2-digit',
-      // minute: '2-digit'
-    });
-  };
+  // List rows never carry the icon URL; the single GET returns a short-lived signed one.
+  const [imageUrl, setImageUrl] = useState(null);
+  useEffect(() => {
+    setImageUrl(null);
+    if (!isOpen || !industry) return;
+    let cancelled = false;
+    getIndustryAPI(industry.id)
+      .then((full) => !cancelled && setImageUrl(full?.imageUrl || null))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, industry]);
 
   const renderStatus = () => {
-    const isActive = industry.status === 1;
+    const isActive = industry.status === "ACTIVE";
     return (
       <span
         className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
@@ -98,12 +98,12 @@ const IndustryViewModal = ({
             </span>
             <span
               className={`text-xs px-2 py-1 rounded-full ${
-                des.status === 1
+                des.status === "ACTIVE"
                   ? "bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400"
                   : "bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400"
               }`}
             >
-              {des.status === 1 ? "Active" : "Inactive"}
+              {des.status === "ACTIVE" ? "Active" : "Inactive"}
             </span>
           </li>
         ))}
@@ -137,9 +137,9 @@ const IndustryViewModal = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
-                    {industry.image_url ? (
+                    {imageUrl ? (
                       <img
-                        src={industry.image_url}
+                        src={imageUrl}
                         alt={industry.name}
                         className="w-full h-full object-cover"
                       />
@@ -182,44 +182,38 @@ const IndustryViewModal = ({
                   >
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <DetailItem label="Industry Name" value={industry.name} />
-                      {/* <DetailItem label="Industry Code" value={industry.code} /> */}
+                      <DetailItem label="Industry Code" value={industry.code} />
                       <DetailItem
                         label="Status"
                         value={
                           <span
                             className={`inline-flex items-center gap-2 ${
-                              industry.status === 1
+                              industry.status === "ACTIVE"
                                 ? "text-emerald-600 dark:text-emerald-400"
                                 : "text-red-600 dark:text-red-400"
                             }`}
                           >
-                            {industry.status === 1 ? (
+                            {industry.status === "ACTIVE" ? (
                               <CheckCircle className="w-4 h-4" />
                             ) : (
                               <XCircle className="w-4 h-4" />
                             )}
-                            {industry.status === 1 ? "Active" : "Inactive"}
+                            {industry.status === "ACTIVE" ? "Active" : "Inactive"}
                           </span>
                         }
-                      />
-                      <DetailItem
-                        label="Created At"
-                        value={formatDate(industry.created_at)}
-                      />
-                      <DetailItem
-                        label="Last Updated"
-                        value={formatDate(industry.updated_at)}
                       />
                     </div>
                   </Card>
 
                   {/* Designations Card */}
-                  <Card
-                    title="Designations"
-                    icon={<Users className="text-purple-500" />}
-                  >
-                    {renderDesignations()}
-                  </Card>
+                  {showDesignations && (
+                    <Card
+                      title="Designations"
+                      icon={<Users className="text-purple-500" />}
+                    >
+                      {renderDesignations()}
+                    </Card>
+                  )}
                 </div>
 
                 {/* Right Column - Quick Summary */}
@@ -229,28 +223,22 @@ const IndustryViewModal = ({
                     icon={<TrendingUp className="text-green-500" />}
                   >
                     <div className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-slate-600 dark:text-slate-400">
-                          Total Designations
-                        </span>
-                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                          {industry.designations?.length || 0}
-                        </span>
-                      </div>
+                      {showDesignations && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-slate-600 dark:text-slate-400">
+                            Total Designations
+                          </span>
+                          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                            {industry.designations?.length || 0}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-slate-600 dark:text-slate-400">
                           Status
                         </span>
                         <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                          {industry.status === 1 ? "Active" : "Inactive"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-slate-600 dark:text-slate-400">
-                          Created
-                        </span>
-                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                          {new Date(industry.created_at).toLocaleDateString()}
+                          {industry.status === "ACTIVE" ? "Active" : "Inactive"}
                         </span>
                       </div>
                     </div>
@@ -261,10 +249,7 @@ const IndustryViewModal = ({
 
             {/* Footer */}
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 px-6 py-4 border-t border-slate-200 dark:border-slate-700 rounded-b-2xl">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-slate-500 dark:text-slate-400">
-                  Last updated: {formatDate(industry.updated_at)}
-                </div>
+              <div className="flex items-center justify-end">
                 <div className="flex space-x-3">
                   <button
                     onClick={onClose}
@@ -284,43 +269,6 @@ const IndustryViewModal = ({
                       Edit
                     </button>
                   )}
-                  {/* {onDelete && (
-                    <button
-                      onClick={() => {
-                        onClose();
-                        onDelete(industry.id);
-                      }}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
-                  )} */}
-                  {/* {onToggleStatus && (
-                    <button
-                      onClick={() => {
-                        onToggleStatus(industry.id, industry.status);
-                        onClose(); // optional: close after toggling
-                      }}
-                      className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                        industry.status === 1
-                          ? "bg-amber-600 hover:bg-amber-700 text-white"
-                          : "bg-green-600 hover:bg-green-700 text-white"
-                      }`}
-                    >
-                      {industry.status === 1 ? (
-                        <>
-                          <PowerOff className="w-4 h-4" />
-                          Deactivate
-                        </>
-                      ) : (
-                        <>
-                          <Power className="w-4 h-4" />
-                          Activate
-                        </>
-                      )}
-                    </button>
-                  )} */}
                 </div>
               </div>
             </div>
@@ -355,6 +303,7 @@ const DetailItem = ({ label, value }) => (
 const IndustryListing = () => {
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
+  const canViewDesignation = hasPermission("designation", "view");
 
   const {
     industries,
@@ -367,8 +316,8 @@ const IndustryListing = () => {
     setPage,
     handleSearch,
     handleClear,
-    handleDelete,
     handleToggleStatus,
+    handleDelete,
     selectedIds,
     toggleSelectIndustry,
     toggleSelectAll,
@@ -377,7 +326,7 @@ const IndustryListing = () => {
     handleBulkDelete,
     sortConfig,
     handleSort,
-  } = useIndustryManagement();
+  } = useIndustryManagement({ withDesignations: canViewDesignation });
 
   const [selectedIndustry, setSelectedIndustry] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -390,8 +339,8 @@ const IndustryListing = () => {
 
   const statusOptions = [
     { key: "all", label: "All Industries" },
-    { key: "1", label: "Active" },
-    { key: "0", label: "Inactive" },
+    { key: "ACTIVE", label: "Active" },
+    { key: "INACTIVE", label: "Inactive" },
   ];
 
   // Sync local status filter with filters.status
@@ -402,14 +351,6 @@ const IndustryListing = () => {
       setFilters((prev) => ({ ...prev, status: statusFilter }));
     }
   }, [statusFilter, setFilters]);
-
-  // Trigger search when filters change (debounced)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      handleSearch();
-    }, 500);
-    // return () => clearTimeout(timer);
-  }, [filters.search, filters.status]);
 
   const handleClickOutside = useCallback((event) => {
     if (
@@ -451,9 +392,8 @@ const IndustryListing = () => {
   const canView = hasPermission("industry", "view");
   const canCreate = hasPermission("industry", "create");
   const canEdit = hasPermission("industry", "edit");
-  const canDelete = hasPermission("industry", "delete");
-  const canViewDesignation = hasPermission("designation", "view");
   const canToggleStatus = hasPermission("industry", "toggle_status");
+  const canDelete = hasPermission("industry", "delete");
 
   if (permissionsLoading) {
     return (
@@ -592,11 +532,16 @@ const IndustryListing = () => {
                           setShowBulkDropdown(false);
                           handleBulkDelete();
                         }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 border-t border-gray-100"
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-gray-700 hover:bg-red-50 hover:text-red-700 border-t border-gray-100"
                       >
                         <Trash2 size={16} />
                         Delete
                       </button>
+                    )}
+                    {!canToggleStatus && !canDelete && (
+                      <p className="px-4 py-2 text-sm text-gray-500">
+                        No bulk actions available
+                      </p>
                     )}
                   </div>
                 )}
@@ -690,12 +635,11 @@ const IndustryListing = () => {
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
                   Image
                 </th>
-                <SortableHeader
-                  label="No of Designations"
-                  sortKey="designations_count"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
+                {canViewDesignation && (
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                    No of Designations
+                  </th>
+                )}
                 <SortableHeader
                   label="Status"
                   sortKey="status"
@@ -710,7 +654,7 @@ const IndustryListing = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-8">
+                  <td colSpan="7" className="text-center py-8">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
@@ -749,34 +693,26 @@ const IndustryListing = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200">
-                        {industry.image_url ? (
-                          <img
-                            src={industry.image_url}
-                            alt={industry.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                            <ImageIcon className="w-5 h-5 text-gray-400" />
-                          </div>
-                        )}
+                        {/* List rows never include the icon URL; it shows in the view modal */}
+                        <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                          <ImageIcon className="w-5 h-5 text-gray-400" />
+                        </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {industry.designations?.length || 0}
-                    </td>
-                    {/* <td className="px-6 py-4 text-sm text-gray-700">
-                      {industry.code || "N/A"}
-                    </td> */}
+                    {canViewDesignation && (
+                      <td className="px-6 py-4 text-sm text-gray-700">
+                        {industry.designations?.length || 0}
+                      </td>
+                    )}
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                          industry.status === 1
+                          industry.status === "ACTIVE"
                             ? "bg-green-100 text-green-800"
                             : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {industry.status === 1 ? "Active" : "Inactive"}
+                        {industry.status === "ACTIVE" ? "Active" : "Inactive"}
                       </span>
                     </td>
                     <td
@@ -817,30 +753,21 @@ const IndustryListing = () => {
                             <List size={18} />
                           </button>
                         )}
-                        {canDelete && (
-                          <button
-                            onClick={() => handleDelete(industry.id)}
-                            className="text-gray-600 hover:text-red-600"
-                            title="Delete"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
                         {canToggleStatus && (
                           <button
                             onClick={() =>
                               handleToggleStatus(industry.id, industry.status)
                             }
                             className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 ${
-                              industry.status === 1
+                              industry.status === "ACTIVE"
                                 ? "bg-red-100 text-red-700 hover:bg-red-200"
                                 : "bg-green-100 text-green-700 hover:bg-green-200"
                             }`}
                             title={
-                              industry.status === 1 ? "Deactivate" : "Activate"
+                              industry.status === "ACTIVE" ? "Deactivate" : "Activate"
                             }
                           >
-                            {industry.status === 1 ? (
+                            {industry.status === "ACTIVE" ? (
                               <>
                                 <XCircle size={14} />
                                 Deactivate
@@ -851,6 +778,15 @@ const IndustryListing = () => {
                                 Activate
                               </>
                             )}
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDelete(industry)}
+                            className="text-gray-600 hover:text-red-600"
+                            title="Delete"
+                          >
+                            <Trash2 size={18} />
                           </button>
                         )}
                       </div>
@@ -927,11 +863,12 @@ const IndustryListing = () => {
           industry={selectedIndustry}
           isOpen={isModalOpen}
           onClose={closeViewModal}
-          onEdit={(industry) =>
-            navigate(`/admin/industries/edit/${industry.id}`)
+          onEdit={
+            canEdit
+              ? (industry) => navigate(`/admin/industries/edit/${industry.id}`)
+              : undefined
           }
-          onDelete={handleDelete}
-          onToggleStatus={handleToggleStatus}
+          showDesignations={canViewDesignation}
         />
       )}
     </motion.div>

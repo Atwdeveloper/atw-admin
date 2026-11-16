@@ -106,13 +106,13 @@ const menuItems = [
     label: "Attendance",
     icon: Clock,
     path: "/admin/attendance/face-enroll",
-    requiredPermission: { module: "face_enroll", action: "view" },
+    requiredPermission: { module: "faceauth", action: "view" },
     subItems: [
       {
         label: "Face Enroll",
         path: "/admin/attendance/face-enroll",
         icon: ScanFace,
-        requiredPermission: { module: "face_enroll", action: "view" },
+        requiredPermission: { module: "faceauth", action: "view" },
       },
     ],
   },
@@ -403,7 +403,7 @@ const menuItems = [
 ];
 
 // Only these sections run on the new Java backend so far.
-const ADMIN_V1_SECTIONS = ["staff", "roles"];
+const ADMIN_V1_SECTIONS = ["worker", "attendance", "staff", "roles", "industries", "minimum-wage"];
 const visibleMenuItems = LEGACY_ADMIN_FEATURES
   ? menuItems
   : menuItems.filter((item) => ADMIN_V1_SECTIONS.includes(item.id));

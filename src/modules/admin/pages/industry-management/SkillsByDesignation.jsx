@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useParams, useLocation } from "@/lib/navigation";
 import {
   Edit2,
-  Trash2,
   Plus,
   Eye,
   CheckCircle,
@@ -16,7 +15,8 @@ import {
   Edit,
   ClipboardList,
   Wrench,
-  ImageIcon
+  ImageIcon,
+  Trash2,
 } from "lucide-react";
 
 
@@ -29,29 +29,34 @@ import Breadcrumb from "../../../../common/components/Breadcrumb";
 import { useSkillManagement } from "../../adminhooks/useSkillManagement";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import SortableHeader from "../../../../common/components/SortableHeader";
+import { getSkillAPI } from "../../../../api/adminV1/masterdataAPI";
 
 
 // Skill View Modal
 const SkillViewModal = ({
-  skill,
+  skill: listSkill,
+  designationName,
   isOpen,
   onClose,
   onEdit,
-  onDelete,
-  onToggleStatus,
 }) => {
-  const formatDate = (dateString) => {
-    if (!dateString) return "Not Provided";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
+  // List rows never carry imageUrl; the single-skill GET returns a signed URL.
+  const [detail, setDetail] = useState(null);
+  useEffect(() => {
+    setDetail(null);
+    if (!isOpen || !listSkill) return;
+    let cancelled = false;
+    getSkillAPI(listSkill.id)
+      .then((s) => !cancelled && setDetail(s))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, listSkill]);
+  const skill = detail || listSkill;
 
   const renderStatus = () => {
-    const isActive = Number(skill.status) === 1;
+    const isActive = skill.status === "ACTIVE";
     return (
       <span
         className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${isActive
@@ -93,9 +98,9 @@ const SkillViewModal = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-600 shrink-0">
-                    {skill.skill_image_url || skill.image_url || skill.skill_image ? (
+                    {skill.imageUrl ? (
                       <img
-                        src={skill.skill_image_url || skill.image_url || skill.skill_image}
+                        src={skill.imageUrl}
                         alt={skill.name}
                         className="w-full h-full object-cover"
                       />
@@ -111,9 +116,9 @@ const SkillViewModal = ({
                     </p>
                     <div className="flex items-center gap-3 mt-1">
                       {renderStatus()}
-                      {skill.designation && (
+                      {designationName && (
                         <span className="text-sm text-slate-500 dark:text-slate-400">
-                          Designation: {skill.designation.name}
+                          Designation: {designationName}
                         </span>
                       )}
                     </div>
@@ -143,28 +148,21 @@ const SkillViewModal = ({
                       label="Status"
                       value={
                         <span
-                          className={`inline-flex items-center gap-2 ${Number(skill.status) === 1
+                          className={`inline-flex items-center gap-2 ${skill.status === "ACTIVE"
                               ? "text-emerald-600 dark:text-emerald-400"
                               : "text-red-600 dark:text-red-400"
                             }`}
                         >
-                          {Number(skill.status) === 1 ? (
+                          {skill.status === "ACTIVE" ? (
                             <CheckCircle className="w-4 h-4" />
                           ) : (
                             <XCircle className="w-4 h-4" />
                           )}
-                          {Number(skill.status) === 1 ? "Active" : "Inactive"}
+                          {skill.status === "ACTIVE" ? "Active" : "Inactive"}
                         </span>
                       }
                     />
-                    <DetailItem
-                      label="Created At"
-                      value={formatDate(skill.created_at)}
-                    />
-                    <DetailItem
-                      label="Last Updated"
-                      value={formatDate(skill.updated_at)}
-                    />
+                    <DetailItem label="Designation" value={designationName} />
                   </div>
                 </Card>
               </div>
@@ -231,17 +229,18 @@ const SkillsByDesignation = () => {
 
   const {
     skills,
+    designation,
     loading,
+    loadError,
     page,
     totalPages,
     totalRecords,
     filters,
     setFilters,
     setPage,
-    handleSearch,
     handleClear,
-    handleDelete,
     handleToggleStatus,
+    handleDelete,
     selectedIds,
     toggleSelectSkill,
     toggleSelectAll,
@@ -255,7 +254,10 @@ const SkillsByDesignation = () => {
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("all");
+  // Status dropdown is driven straight from the hook's filter
+  const statusFilter = filters.status || "all";
+  const setStatusFilter = (key) =>
+    setFilters((prev) => ({ ...prev, status: key === "all" ? "" : key }));
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showBulkDropdown, setShowBulkDropdown] = useState(false);
   const statusFilterRef = useRef(null);
@@ -263,29 +265,18 @@ const SkillsByDesignation = () => {
 
   const params = new URLSearchParams(location.search);
 
-  const designationName = params.get("designationName") || "Designation";
-  const industryName = params.get("industryName") || "Industry";
   const industryId = params.get("industryId");
+  const designationName =
+    designation?.name || params.get("designationName") || "Designation";
+  const industryName =
+    designation?.industries?.find((i) => i.id === industryId)?.name ||
+    params.get("industryName") ||
+    "Industry";
   const statusOptions = [
     { key: "all", label: "All Skills" },
-    { key: "1", label: "Active" },
-    { key: "0", label: "Inactive" },
+    { key: "ACTIVE", label: "Active" },
+    { key: "INACTIVE", label: "Inactive" },
   ];
-
-  useEffect(() => {
-    if (statusFilter === "all") {
-      setFilters((prev) => ({ ...prev, status: "" }));
-    } else {
-      setFilters((prev) => ({ ...prev, status: statusFilter }));
-    }
-  }, [statusFilter, setFilters]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      handleSearch();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [filters.search, filters.status]);
 
   const handleClickOutside = useCallback((event) => {
     if (
@@ -318,17 +309,19 @@ const SkillsByDesignation = () => {
   };
 
   const handleClearAll = () => {
-    setFilters({ search: "", status: "" });
-    setStatusFilter("all");
+    handleClear();
     setFiltersVisible(false);
-    handleSearch();
   };
+
+  // Clear button next to search only clears the search text (keeps the status filter)
+  const handleClearSearch = () =>
+    setFilters((prev) => ({ ...prev, search: "" }));
 
   const canView = hasPermission("skill", "view");
   const canCreate = hasPermission("skill", "create");
   const canEdit = hasPermission("skill", "edit");
-  const canDelete = hasPermission("skill", "delete");
   const canToggleStatus = hasPermission("skill", "toggle_status");
+  const canDelete = hasPermission("skill", "delete");
 
   if (!permissionsLoading && !canView) {
     return (
@@ -462,11 +455,14 @@ const SkillsByDesignation = () => {
                           setShowBulkDropdown(false);
                           handleBulkDelete();
                         }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 border-t border-gray-100"
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-gray-700 hover:bg-red-50 hover:text-red-700 border-t border-gray-100"
                       >
                         <Trash2 size={16} />
                         Delete
                       </button>
+                    )}
+                    {!canToggleStatus && !canDelete && (
+                      <p className="px-4 py-2 text-sm text-gray-500">No bulk actions available</p>
                     )}
                   </div>
                 )}
@@ -485,7 +481,7 @@ const SkillsByDesignation = () => {
 
                 {!filtersVisible && filters.search && (
                   <button
-                    onClick={handleClear}
+                    onClick={handleClearSearch}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
                   >
                     Clear
@@ -559,6 +555,12 @@ const SkillsByDesignation = () => {
                     </div>
                   </td>
                 </tr>
+              ) : loadError ? (
+                <tr>
+                  <td colSpan="5" className="text-center py-10 text-red-600">
+                    {loadError}
+                  </td>
+                </tr>
               ) : skills.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="text-center py-10 text-gray-500">
@@ -592,9 +594,9 @@ const SkillsByDesignation = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200">
-                        {skill.skill_image_url || skill.image_url || skill.skill_image ? (
+                        {skill.imageUrl ? (
                           <img
-                            src={skill.skill_image_url || skill.image_url || skill.skill_image}
+                            src={skill.imageUrl}
                             alt={skill.name}
                             className="w-full h-full object-cover"
                           />
@@ -607,12 +609,12 @@ const SkillsByDesignation = () => {
                     </td>
                     <td className="px-6 py-4">
                       <span
-                        className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${Number(skill.status) === 1
+                        className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${skill.status === "ACTIVE"
                             ? "bg-green-100 text-green-800"
                             : "bg-red-100 text-red-800"
                           }`}
                       >
-                        {Number(skill.status) === 1 ? "Active" : "Inactive"}
+                        {skill.status === "ACTIVE" ? "Active" : "Inactive"}
                       </span>
                     </td>
                     <td
@@ -644,29 +646,29 @@ const SkillsByDesignation = () => {
                           </button>
                         )}
 
-                        {canDelete && (
-                          <button
-                            onClick={() => handleDelete(skill.id)}
-                            className="text-gray-600 hover:text-red-600"
-                            title="Delete"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
-
                         {canToggleStatus && (
                           <button
                             onClick={() =>
                               handleToggleStatus(skill.id, skill.status)
                             }
-                            className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 ${Number(skill.status) === 1
+                            className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 ${skill.status === "ACTIVE"
                                 ? "bg-red-100 text-red-700"
                                 : "bg-green-100 text-green-700"
                               }`}
                           >
-                            {Number(skill.status) === 1
+                            {skill.status === "ACTIVE"
                               ? "Deactivate"
                               : "Activate"}
+                          </button>
+                        )}
+
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDelete(skill.id, skill.name)}
+                            className="text-gray-600 hover:text-red-600"
+                            title="Delete"
+                          >
+                            <Trash2 size={18} />
                           </button>
                         )}
                       </div>
@@ -736,15 +738,17 @@ const SkillsByDesignation = () => {
       {canView && (
         <SkillViewModal
           skill={selectedSkill}
+          designationName={designationName}
           isOpen={isModalOpen}
           onClose={closeViewModal}
-          onEdit={(skill) =>
-            navigate(
-              `/admin/industries/designations/${designationId}/skills/edit/${skill.id}?designationName=${encodeURIComponent(designationName)}&industryId=${industryId || ""}&industryName=${encodeURIComponent(industryName)}`,
-            )
+          onEdit={
+            canEdit
+              ? (skill) =>
+                  navigate(
+                    `/admin/industries/designations/${designationId}/skills/edit/${skill.id}?designationName=${encodeURIComponent(designationName)}&industryId=${industryId || ""}&industryName=${encodeURIComponent(industryName)}`,
+                  )
+              : undefined
           }
-          onDelete={handleDelete}
-          onToggleStatus={handleToggleStatus}
         />
       )}
     </motion.div>

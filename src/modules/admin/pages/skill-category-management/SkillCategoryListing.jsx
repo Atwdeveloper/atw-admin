@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "@/lib/navigation";
 import {
   Edit2,
-  Trash2,
   Plus,
   Eye,
   CheckCircle,
@@ -16,6 +15,7 @@ import {
   X,
   Edit,
   ClipboardList,
+  Trash2,
 } from "lucide-react";
 import {
   containerVariants,
@@ -29,18 +29,8 @@ import SortableHeader from "../../../../common/components/SortableHeader";
 
 // ====================== VIEW MODAL ======================
 const SkillCategoryViewModal = ({ skillCategory, isOpen, onClose, onEdit }) => {
-  const formatDate = (dateString) => {
-    if (!dateString) return "Not Provided";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
   const renderStatus = () => {
-    const isActive = Number(skillCategory.status) === 1;
+    const isActive = skillCategory.status === "ACTIVE";
     return (
       <span
         className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
@@ -132,36 +122,10 @@ const SkillCategoryViewModal = ({ skillCategory, isOpen, onClose, onEdit }) => {
                   </div>
                   <div className="flex flex-col gap-1">
                     <span className="text-sm text-slate-600 dark:text-slate-400">
-                      Designations Using This Category
-                    </span>
-                    <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {skillCategory.designations_count ?? 0}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">
                       Status
                     </span>
                     <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {Number(skillCategory.status) === 1
-                        ? "Active"
-                        : "Inactive"}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">
-                      Created At
-                    </span>
-                    <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {formatDate(skillCategory.created_at)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">
-                      Last Updated
-                    </span>
-                    <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {formatDate(skillCategory.updated_at)}
+                      {skillCategory.status === "ACTIVE" ? "Active" : "Inactive"}
                     </span>
                   </div>
                 </div>
@@ -206,15 +170,15 @@ const SkillCategoryListing = () => {
     skillCategories,
     loading,
     page,
+    pageSize,
     totalPages,
     totalRecords,
     filters,
     setFilters,
     setPage,
-    handleSearch,
     handleClear,
-    handleDelete,
     handleToggleStatus,
+    handleDelete,
     selectedIds,
     toggleSelectSkillCategory,
     toggleSelectAll,
@@ -236,8 +200,8 @@ const SkillCategoryListing = () => {
 
   const statusOptions = [
     { key: "all", label: "All Skill Categories" },
-    { key: "1", label: "Active" },
-    { key: "0", label: "Inactive" },
+    { key: "ACTIVE", label: "Active" },
+    { key: "INACTIVE", label: "Inactive" },
   ];
 
   // Sync local status filter with filters.status
@@ -248,15 +212,6 @@ const SkillCategoryListing = () => {
       setFilters((prev) => ({ ...prev, status: statusFilter }));
     }
   }, [statusFilter, setFilters]);
-
-  // Trigger search when filters change (debounced)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      handleSearch();
-    }, 500);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.status]);
 
   const handleClickOutside = useCallback((event) => {
     if (
@@ -292,14 +247,13 @@ const SkillCategoryListing = () => {
     setFilters({ search: "", status: "" });
     setStatusFilter("all");
     setFiltersVisible(false);
-    handleSearch();
   };
 
   const canView = hasPermission("skill_category", "view");
   const canCreate = hasPermission("skill_category", "create");
   const canEdit = hasPermission("skill_category", "edit");
-  const canDelete = hasPermission("skill_category", "delete");
   const canToggleStatus = hasPermission("skill_category", "toggle_status");
+  const canDelete = hasPermission("skill_category", "delete");
 
   if (permissionsLoading) {
     return (
@@ -438,11 +392,16 @@ const SkillCategoryListing = () => {
                           setShowBulkDropdown(false);
                           handleBulkDelete();
                         }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 border-t border-gray-100"
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 hover:text-red-700 border-t border-gray-100"
                       >
                         <Trash2 size={16} />
                         Delete
                       </button>
+                    )}
+                    {!canToggleStatus && !canDelete && (
+                      <p className="px-4 py-2 text-sm text-gray-500">
+                        No bulk actions available
+                      </p>
                     )}
                   </div>
                 )}
@@ -451,7 +410,7 @@ const SkillCategoryListing = () => {
               <>
                 <input
                   type="text"
-                  placeholder="Search by skill category name..."
+                  placeholder="Search by name..."
                   value={filters.search || ""}
                   onChange={(e) =>
                     setFilters({ ...filters, search: e.target.value })
@@ -535,18 +494,9 @@ const SkillCategoryListing = () => {
                   sortConfig={sortConfig}
                   onSort={handleSort}
                 />
-                <SortableHeader
-                  label="Code"
-                  sortKey="code"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
-                <SortableHeader
-                  label="Designations"
-                  sortKey="designations_count"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                  Code
+                </th>
                 <SortableHeader
                   label="Status"
                   sortKey="status"
@@ -561,7 +511,7 @@ const SkillCategoryListing = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-8">
+                  <td colSpan="6" className="text-center py-8">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
@@ -569,7 +519,7 @@ const SkillCategoryListing = () => {
                 </tr>
               ) : skillCategories.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-10 text-gray-500">
+                  <td colSpan="6" className="text-center py-10 text-gray-500">
                     No skill categories found.
                   </td>
                 </tr>
@@ -598,7 +548,7 @@ const SkillCategoryListing = () => {
                       />
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">
-                      {(page - 1) * 10 + index + 1}
+                      {(page - 1) * pageSize + index + 1}
                     </td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
                       {skillCategory.name}
@@ -606,18 +556,15 @@ const SkillCategoryListing = () => {
                     <td className="px-6 py-4 text-sm text-gray-700">
                       {skillCategory.code || "-"}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {skillCategory.designations_count ?? 0}
-                    </td>
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                          Number(skillCategory.status) === 1
+                          skillCategory.status === "ACTIVE"
                             ? "bg-green-100 text-green-800"
                             : "bg-red-100 text-red-800"
                         }`}
                       >
-                        {Number(skillCategory.status) === 1
+                        {skillCategory.status === "ACTIVE"
                           ? "Active"
                           : "Inactive"}
                       </span>
@@ -649,15 +596,6 @@ const SkillCategoryListing = () => {
                             <Edit2 size={18} />
                           </button>
                         )}
-                        {canDelete && (
-                          <button
-                            onClick={() => handleDelete(skillCategory.id)}
-                            className="text-gray-600 hover:text-red-600"
-                            title="Delete"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
                         {canToggleStatus && (
                           <button
                             onClick={() =>
@@ -667,17 +605,17 @@ const SkillCategoryListing = () => {
                               )
                             }
                             className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 ${
-                              Number(skillCategory.status) === 1
+                              skillCategory.status === "ACTIVE"
                                 ? "bg-red-100 text-red-700 hover:bg-red-200"
                                 : "bg-green-100 text-green-700 hover:bg-green-200"
                             }`}
                             title={
-                              Number(skillCategory.status) === 1
+                              skillCategory.status === "ACTIVE"
                                 ? "Deactivate"
                                 : "Activate"
                             }
                           >
-                            {Number(skillCategory.status) === 1 ? (
+                            {skillCategory.status === "ACTIVE" ? (
                               <>
                                 <XCircle size={14} />
                                 Deactivate
@@ -688,6 +626,15 @@ const SkillCategoryListing = () => {
                                 Activate
                               </>
                             )}
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDelete(skillCategory)}
+                            className="text-gray-600 hover:text-red-600"
+                            title="Delete"
+                          >
+                            <Trash2 size={18} />
                           </button>
                         )}
                       </div>

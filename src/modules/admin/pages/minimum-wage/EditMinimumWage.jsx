@@ -3,30 +3,32 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useParams } from "@/lib/navigation";
-import { Save } from "lucide-react";
+import { Info, Save } from "lucide-react";
 import Swal from "sweetalert2";
 import {
   containerVariants,
   itemVariants,
 } from "../../../../common/utils/motionVariants";
 import {
-  getMinimumWageByIdAPI,
-  updateMinimumWageAPI,
-} from "../../../../api/admin/adminMinimumWageAPI";
+  createMinimumWageRateAPI,
+  getMinimumWageRateAPI,
+} from "../../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
+import { validateRate } from "./AddMinimumWage";
 
+// Rates are immutable: this page adds a NEW dated version for the same
+// state + skill category, prefilled from the version it was opened from.
 const EditMinimumWage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
+  const [source, setSource] = useState(null); // the version this page was opened from
   const [formData, setFormData] = useState({
-    min_daily_rate: "",
-  });
-  const [readOnlyInfo, setReadOnlyInfo] = useState({
-    stateName: "",
-    skillCategoryName: "",
+    minDailyRate: "",
+    effectiveFrom: "",
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
@@ -36,22 +38,17 @@ const EditMinimumWage = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const rateResponse = await getMinimumWageByIdAPI(id);
-
-        const rate = rateResponse.data;
+        const rate = await getMinimumWageRateAPI(id);
+        setSource(rate);
         setFormData({
-          min_daily_rate: rate.min_daily_rate ?? "",
-        });
-        setReadOnlyInfo({
-          stateName: rate.state?.name || "-",
-          skillCategoryName: rate.skill_category?.name || "-",
+          minDailyRate: rate.minDailyRate ?? "",
+          effectiveFrom: "",
         });
       } catch (error) {
-        console.error("Error fetching minimum wage rate:", error);
         Swal.fire({
           icon: "error",
           title: "Failed to load minimum wage rate",
-          text: error.response?.data?.message || "Something went wrong",
+          text: apiError(error).message,
         });
         navigate("/admin/minimum-wage");
       } finally {
@@ -70,13 +67,13 @@ const EditMinimumWage = () => {
   const validate = () => {
     const newErrors = {};
 
-    if (!formData.min_daily_rate) {
-      newErrors.min_daily_rate = "Minimum daily rate is required";
-    } else if (
-      isNaN(formData.min_daily_rate) ||
-      Number(formData.min_daily_rate) <= 0
-    ) {
-      newErrors.min_daily_rate = "Enter a valid positive rate";
+    const rateError = validateRate(formData.minDailyRate);
+    if (rateError) newErrors.minDailyRate = rateError;
+    if (!formData.effectiveFrom) {
+      newErrors.effectiveFrom = "Effective date for the new version is required";
+    } else if (formData.effectiveFrom === source?.effectiveFrom && source?.status === "ACTIVE") {
+      newErrors.effectiveFrom =
+        "This date is taken by the current version. To correct it, deactivate that version first.";
     }
 
     setErrors(newErrors);
@@ -89,44 +86,37 @@ const EditMinimumWage = () => {
 
     setSubmitting(true);
     try {
-      const response = await updateMinimumWageAPI(id, {
-        min_daily_rate: formData.min_daily_rate,
+      await createMinimumWageRateAPI({
+        stateId: source.stateId,
+        skillCategoryId: source.skillCategoryId,
+        minDailyRate: Number(formData.minDailyRate),
+        effectiveFrom: formData.effectiveFrom,
       });
-
-      if (response?.status && response.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Failed to update minimum wage rate",
-          text: response.message || "Something went wrong",
-        });
-        return;
-      }
 
       Swal.fire({
         icon: "success",
         title: "Success!",
-        text: "Minimum wage rate updated successfully",
+        text: "New minimum wage version added",
         timer: 1500,
         showConfirmButton: false,
       });
       navigate("/admin/minimum-wage");
     } catch (error) {
-      console.error("Error updating minimum wage rate:", error);
-
-      const validationErrors = error.response?.data?.errors;
-      if (error.response?.status === 422 && validationErrors) {
-        setErrors((prev) => ({
-          ...prev,
-          min_daily_rate:
-            validationErrors.min_daily_rate?.[0] || prev.min_daily_rate,
-        }));
+      const { code, message, fieldErrors } = apiError(error);
+      if (code === "CONFLICT") {
+        // An active rate already exists for this state/category/date
+        setErrors((prev) => ({ ...prev, effectiveFrom: message }));
+        return;
+      }
+      if (Object.keys(fieldErrors).length) {
+        setErrors((prev) => ({ ...prev, ...fieldErrors }));
         return;
       }
 
       Swal.fire({
         icon: "error",
-        title: "Failed to update minimum wage rate",
-        text: error.response?.data?.message || "Something went wrong",
+        title: "Failed to add new version",
+        text: message,
       });
     } finally {
       setSubmitting(false);
@@ -141,7 +131,7 @@ const EditMinimumWage = () => {
     );
   }
 
-  if (!hasPermission("minimum_wage", "edit")) {
+  if (!hasPermission("minimum_wage", "create")) {
     return (
       <div className="flex-1 bg-gray-50 p-4 flex items-center justify-center">
         <div className="bg-white rounded-lg p-8 text-center max-w-md">
@@ -149,7 +139,7 @@ const EditMinimumWage = () => {
             Access Denied
           </h2>
           <p className="text-gray-600 mb-6">
-            You don't have permission to edit minimum wage rates.
+            You don't have permission to add minimum wage rates.
           </p>
           <button
             onClick={() => navigate("/admin/minimum-wage")}
@@ -173,14 +163,14 @@ const EditMinimumWage = () => {
         <Breadcrumb
           items={[
             { label: "Minimum Wage", path: "/admin/minimum-wage" },
-            { label: "Edit Rate" },
+            { label: "New Version" },
           ]}
         />
       </motion.div>
       <motion.div className="" variants={itemVariants}>
         <div className="flex items-center gap-4 mb-6">
           <h1 className="text-2xl font-bold text-gray-800">
-            Edit Minimum Wage Rate
+            New Minimum Wage Version
           </h1>
         </div>
 
@@ -188,20 +178,31 @@ const EditMinimumWage = () => {
           onSubmit={handleSubmit}
           className="space-y-6 max-w-2xl bg-white rounded-2xl border border-gray-200 shadow-sm p-6"
         >
+          <div className="flex gap-3 p-4 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+            <Info className="w-5 h-5 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p>
+                Rates can't be edited. Saving adds a <strong>new dated version</strong>; the
+                current one ({source?.minDailyRate}/day from {source?.effectiveFrom}) stays in
+                the history and still applies to dates before the new one.
+              </p>
+              <p>
+                To correct a wrongly entered rate, deactivate it from the list first, then add
+                the right one with the same date.
+              </p>
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               State
             </label>
             <input
               type="text"
-              value={readOnlyInfo.stateName}
+              value={source?.stateName || "-"}
               disabled
               className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
             />
-            <p className="mt-1 text-xs text-gray-500">
-              State and skill category can't be changed after creation. Delete
-              and re-add the rate if they need to change.
-            </p>
           </div>
 
           <div>
@@ -210,36 +211,62 @@ const EditMinimumWage = () => {
             </label>
             <input
               type="text"
-              value={readOnlyInfo.skillCategoryName}
+              value={source?.skillCategoryName || "-"}
               disabled
               className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
             />
+            <p className="mt-1 text-xs text-gray-500">
+              A version always keeps the state and skill category. For a different pair, use
+              Add Minimum Wage.
+            </p>
           </div>
 
           <div>
             <label
-              htmlFor="min_daily_rate"
+              htmlFor="minDailyRate"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
               Minimum Daily Rate (₹) <span className="text-red-500">*</span>
             </label>
             <input
               type="number"
-              id="min_daily_rate"
-              name="min_daily_rate"
+              id="minDailyRate"
+              name="minDailyRate"
               min="0"
               step="0.01"
-              value={formData.min_daily_rate}
+              value={formData.minDailyRate}
               onChange={handleChange}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.min_daily_rate ? "border-red-500" : "border-gray-300"
+                errors.minDailyRate ? "border-red-500" : "border-gray-300"
               }`}
               placeholder="Enter minimum daily rate"
             />
-            {errors.min_daily_rate && (
+            {errors.minDailyRate && (
               <p className="mt-1 text-sm text-red-600">
-                {errors.min_daily_rate}
+                {errors.minDailyRate}
               </p>
+            )}
+          </div>
+
+          <div>
+            <label
+              htmlFor="effectiveFrom"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              New Version Effective From <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="date"
+              id="effectiveFrom"
+              name="effectiveFrom"
+              value={formData.effectiveFrom}
+              onChange={handleChange}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                errors.effectiveFrom ? "border-red-500" : "border-gray-300"
+              }`}
+            />
+            {errors.effectiveFrom && (
+              <p className="mt-1 text-sm text-red-600">{errors.effectiveFrom}</p>
             )}
           </div>
 
@@ -259,12 +286,12 @@ const EditMinimumWage = () => {
               {submitting ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Updating...
+                  Saving...
                 </>
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  Update Rate
+                  Add New Version
                 </>
               )}
             </button>

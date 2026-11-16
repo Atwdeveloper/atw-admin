@@ -38,6 +38,7 @@ import { getCompanyFilterOptionsAPI } from "../../../../api/admin/adminCompanyAP
 import { useDateRangeFilter } from "../../../../common/hooks/useDateRangeFilter";
 import DateRangeDropdown from "../../../../common/components/DateRangeDropdown.jsx";
 
+import ActionMenuPortal from "../../../../common/components/ActionMenuPortal";
 const CompanyListing = () => {
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
@@ -1256,7 +1257,7 @@ const CompanyListing = () => {
                         </button>
 
                         {openActionMenuId === company.id && (
-                          <div className="absolute right-0 z-20 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
+                          <ActionMenuPortal className="w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
                             {jobOpenings && (
                               <button
                                 onClick={() => {
@@ -1373,7 +1374,7 @@ const CompanyListing = () => {
                                 Delete Company
                               </button>
                             )}
-                          </div>
+                          </ActionMenuPortal>
                         )}
                       </div>
                     </td>

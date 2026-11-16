@@ -10,9 +10,11 @@ import {
   itemVariants,
 } from "../../../../common/utils/motionVariants";
 import {
-  getSkillCategoryByIdAPI,
+  getSkillCategoryAPI,
+  setSkillCategoryStatusAPI,
   updateSkillCategoryAPI,
-} from "../../../../api/admin/adminSkillCategoryAPI";
+} from "../../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
@@ -21,32 +23,35 @@ const EditSkillCategory = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
+  const canToggleStatus = hasPermission("skill_category", "toggle_status");
   const [formData, setFormData] = useState({
     name: "",
     code: "",
-    status: 1,
+    status: "ACTIVE",
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
+  // Status is saved through its own endpoint, only when it actually changed
+  const [savedStatus, setSavedStatus] = useState("ACTIVE");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchSkillCategory = async () => {
       try {
         setLoading(true);
-        const response = await getSkillCategoryByIdAPI(id);
-        const skillCategory = response.data;
-        setFormData({
+        const skillCategory = await getSkillCategoryAPI(id);
+        const loaded = {
           name: skillCategory.name || "",
           code: skillCategory.code || "",
-          status: Number(skillCategory.status ?? 1),
-        });
+          status: skillCategory.status || "ACTIVE",
+        };
+        setFormData(loaded);
+        setSavedStatus(loaded.status);
       } catch (error) {
-        console.error("Error fetching skill category:", error);
         Swal.fire({
           icon: "error",
           title: "Failed to load skill category",
-          text: error.response?.data?.message || "Something went wrong",
+          text: apiError(error).message,
         });
         navigate("/admin/skill-categories");
       } finally {
@@ -81,6 +86,8 @@ const EditSkillCategory = () => {
       newErrors.name = "Skill category name is required";
     } else if (!/^[a-zA-Z0-9\s-]+$/.test(formData.name)) {
       newErrors.name = "Special characters are not allowed";
+    } else if (formData.name.trim().length > 150) {
+      newErrors.name = "Name must be at most 150 characters";
     }
 
     setErrors(newErrors);
@@ -93,20 +100,11 @@ const EditSkillCategory = () => {
 
     setSubmitting(true);
     try {
-      const payload = {
-        name: formData.name,
-        code: formData.code || null,
-        status: formData.status,
-      };
-      const response = await updateSkillCategoryAPI(id, payload);
-
-      if (response?.status && response.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Failed to update skill category",
-          text: response.message || "Something went wrong",
-        });
-        return;
+      const payload = { name: formData.name.trim() };
+      await updateSkillCategoryAPI(id, payload);
+      // Status has its own endpoint — only call it when it changed.
+      if (formData.status !== savedStatus && canToggleStatus) {
+        await setSkillCategoryStatusAPI(id, formData.status);
       }
 
       Swal.fire({
@@ -118,22 +116,21 @@ const EditSkillCategory = () => {
       });
       navigate("/admin/skill-categories");
     } catch (error) {
-      console.error("Error updating skill category:", error);
-
-      const validationErrors = error.response?.data?.errors;
-      if (error.response?.status === 422 && validationErrors) {
-        setErrors((prev) => ({
-          ...prev,
-          name: validationErrors.name?.[0] || prev.name,
-          code: validationErrors.code?.[0] || prev.code,
-        }));
+      const { code, message, fieldErrors } = apiError(error);
+      // The only unique user-entered field is the name (code is backend-generated)
+      if (code === "CONFLICT") {
+        setErrors((prev) => ({ ...prev, name: message }));
+        return;
+      }
+      if (fieldErrors.name) {
+        setErrors((prev) => ({ ...prev, name: fieldErrors.name }));
         return;
       }
 
       Swal.fire({
         icon: "error",
         title: "Failed to update skill category",
-        text: error.response?.data?.message || "Something went wrong",
+        text: message,
       });
     } finally {
       setSubmitting(false);
@@ -206,6 +203,7 @@ const EditSkillCategory = () => {
               type="text"
               id="name"
               name="name"
+              maxLength={150}
               value={formData.name}
               onChange={handleChange}
               onBlur={() => validate()}
@@ -220,29 +218,25 @@ const EditSkillCategory = () => {
             )}
           </div>
 
-          <div>
-            <label
-              htmlFor="code"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Code
-            </label>
-            <input
-              type="text"
-              id="code"
-              name="code"
-              value={formData.code}
-              onChange={handleChange}
-              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.code ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder="e.g., skilled"
-            />
-            {errors.code && (
-              <p className="mt-1 text-sm text-red-600">{errors.code}</p>
-            )}
-          </div>
+          {formData.code && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Code
+              </label>
+              <input
+                type="text"
+                value={formData.code}
+                readOnly
+                disabled
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Generated automatically and can&apos;t be changed.
+              </p>
+            </div>
+          )}
 
+          {canToggleStatus && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Status
@@ -252,10 +246,10 @@ const EditSkillCategory = () => {
                 <input
                   type="radio"
                   name="status"
-                  value="1"
-                  checked={Number(formData.status) === 1}
+                  value="ACTIVE"
+                  checked={formData.status === "ACTIVE"}
                   onChange={() =>
-                    setFormData((prev) => ({ ...prev, status: 1 }))
+                    setFormData((prev) => ({ ...prev, status: "ACTIVE" }))
                   }
                   className="w-4 h-4 text-blue-600"
                 />
@@ -265,10 +259,10 @@ const EditSkillCategory = () => {
                 <input
                   type="radio"
                   name="status"
-                  value="0"
-                  checked={Number(formData.status) === 0}
+                  value="INACTIVE"
+                  checked={formData.status === "INACTIVE"}
                   onChange={() =>
-                    setFormData((prev) => ({ ...prev, status: 0 }))
+                    setFormData((prev) => ({ ...prev, status: "INACTIVE" }))
                   }
                   className="w-4 h-4 text-blue-600"
                 />
@@ -276,6 +270,7 @@ const EditSkillCategory = () => {
               </label>
             </div>
           </div>
+          )}
 
           <div className="flex justify-end gap-3">
             <button

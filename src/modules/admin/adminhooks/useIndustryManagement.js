@@ -1,17 +1,30 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Swal from "sweetalert2";
 import {
-  getIndustriesAPI,
+  getIndustriesPageAPI,
+  getDesignationsAPI,
+  setIndustryStatusAPI,
   deleteIndustryAPI,
-  toggleIndustryStatusAPI,
   bulkDeleteIndustriesAPI,
-  bulkToggleIndustryStatusAPI,
-} from "../../../api/admin/adminIndustryAPI";
+  bulkIndustryStatusAPI,
+} from "../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../api/javaApi";
+import { useDebounce } from "../../../common/hooks/useDebounce";
+import { showBulkResult } from "../utils/bulkResult";
 
-export const useIndustryManagement = () => {
-  const [industries, setIndustries] = useState([]);
+const PAGE_SIZE = 10;
+// Fields the Java list endpoint can sort by (anything else is a 400).
+const SORTABLE = ["name", "status", "createdAt"];
+
+// Search, status filter, sort and paging all happen on the server
+// (GET /admin/masterdata/industries is paged). Pass withDesignations (needs
+// designation.view) to also count each industry's designations from one extra
+// list call.
+export const useIndustryManagement = ({ withDesignations = false } = {}) => {
+  const [rows, setRows] = useState([]);
+  const [designations, setDesignations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -20,68 +33,108 @@ export const useIndustryManagement = () => {
     search: "",
     status: "",
   });
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [selectedIds, setSelectedIds] = useState([]);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+  const requestRef = useRef(0);
+
+  const debouncedSearch = useDebounce(filters.search.trim(), 500);
+
+  // Back to page 1 (and drop the selection) whenever the query changes. Done
+  // during render so the fetch below never runs with a stale page number.
+  const queryKey = JSON.stringify([debouncedSearch, filters.status, sortConfig]);
+  const [prevQueryKey, setPrevQueryKey] = useState(queryKey);
+  if (prevQueryKey !== queryKey) {
+    setPrevQueryKey(queryKey);
+    setPage(1);
+    setSelectedIds([]);
+  }
 
   const handleSort = (key) => {
+    if (!SORTABLE.includes(key)) return;
     setSortConfig((prev) => {
       if (prev.key !== key) return { key, direction: "asc" };
       if (prev.direction === "asc") return { key, direction: "desc" };
       return { key: null, direction: "asc" };
     });
-    setPage(1);
   };
 
-  // Keep filters stable in a ref for the fetch callback
-  const filtersRef = useRef(filters);
-  useEffect(() => {
-    filtersRef.current = filters;
-  }, [filters]);
-
-  // Core fetch function – depends only on page/sort, uses filters from ref
   const fetchIndustries = useCallback(async () => {
+    const requestId = ++requestRef.current;
     setLoading(true);
     try {
-      const params = {
-        page,
-        limit: 10,
-        search: filtersRef.current.search || undefined,
-        status: filtersRef.current.status || undefined,
-        sort_by: sortConfig.key || undefined,
-        sort_dir: sortConfig.key ? sortConfig.direction : undefined,
-      };
-      const response = await getIndustriesAPI(params);
-      const responseData = response.data;
-      setIndustries(responseData.data || []);
-      setTotalPages(responseData.last_page || 1);
-      setTotalRecords(responseData.total || 0);
+      const data = await getIndustriesPageAPI({
+        page: page - 1,
+        size: PAGE_SIZE,
+        search: debouncedSearch,
+        statuses: filters.status ? [filters.status] : undefined,
+        sort: sortConfig.key ? `${sortConfig.key},${sortConfig.direction}` : undefined,
+      });
+      if (requestId !== requestRef.current) return;
+      setRows(data?.content || []);
+      setTotalPages(Math.max(1, data?.totalPages || 1));
+      setTotalRecords(data?.totalElements || 0);
     } catch (error) {
-      console.error("Error fetching industries:", error);
+      if (requestId !== requestRef.current) return;
       Swal.fire({
         icon: "error",
         title: "Failed to load industries",
-        text: error.response?.data?.message || "Something went wrong",
+        text: apiError(error, "Something went wrong").message,
       });
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
     }
-  }, [page, sortConfig]);
+  }, [page, debouncedSearch, filters.status, sortConfig]);
 
-  // Trigger a fresh fetch (used by search, clear, etc.)
-  const triggerFetch = useCallback(() => {
-    setRefreshTrigger((prev) => prev + 1);
-  }, []);
+  const fetchDesignations = useCallback(async () => {
+    if (!withDesignations) {
+      setDesignations([]);
+      return;
+    }
+    try {
+      setDesignations((await getDesignationsAPI()) || []);
+    } catch {
+      setDesignations([]);
+    }
+  }, [withDesignations]);
 
-  // Fetch whenever page or refreshTrigger changes
   useEffect(() => {
     fetchIndustries();
-  }, [page, refreshTrigger, fetchIndustries]);
+  }, [fetchIndustries]);
 
-  // Selection is tied to the current page/filters — reset it whenever either changes
+  useEffect(() => {
+    fetchDesignations();
+  }, [fetchDesignations]);
+
+  const refresh = useCallback(() => {
+    fetchIndustries();
+    fetchDesignations();
+  }, [fetchIndustries, fetchDesignations]);
+
+  // industryId -> designations belonging to it
+  const designationsByIndustry = useMemo(() => {
+    const map = {};
+    designations.forEach((d) =>
+      (d.industries || []).forEach((i) => {
+        (map[i.id] = map[i.id] || []).push(d);
+      }),
+    );
+    return map;
+  }, [designations]);
+
+  const industries = useMemo(
+    () => rows.map((i) => ({ ...i, designations: designationsByIndustry[i.id] || [] })),
+    [rows, designationsByIndustry],
+  );
+
+  // Stay on a real page when a delete shrinks the list
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  // Selection is tied to the current page — reset it whenever it changes
   useEffect(() => {
     setSelectedIds([]);
-  }, [page, refreshTrigger]);
+  }, [page]);
 
   const toggleSelectIndustry = (id) => {
     setSelectedIds((prev) =>
@@ -95,66 +148,21 @@ export const useIndustryManagement = () => {
     );
   };
 
-  // Search handler: reset page to 1 and force a refetch
+  // Search is debounced and live; this just jumps back to page 1.
   const handleSearch = useCallback(() => {
     setPage(1);
-    triggerFetch();
-  }, [triggerFetch]);
+  }, []);
 
-  // Clear all filters and refetch
   const handleClear = useCallback(() => {
     setFilters({ search: "", status: "" });
     setPage(1);
-    triggerFetch();
-  }, [triggerFetch]);
+  }, []);
 
-  // Delete and toggle status remain the same, but after success we can call fetch directly
-  const handleDelete = async (id) => {
-    const result = await Swal.fire({
-      title: "Are you sure?",
-      text: "You won't be able to revert this!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
-      confirmButtonText: "Yes, delete it!",
-    });
-
-    if (!result.isConfirmed) return;
-
-    try {
-      const response = await deleteIndustryAPI(id);
-
-      if (response?.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Delete failed",
-          text: response?.message || "Cannot delete industry",
-        });
-
-        return;
-      }
-
-      Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Industry has been deleted.",
-      });
-
-      fetchIndustries();
-    } catch (error) {
-      console.error("Error deleting industry:", error);
-
-      Swal.fire({
-        icon: "error",
-        title: "Delete failed",
-        text: error.response?.data?.message || "Something went wrong",
-      });
-    }
-  };
+  const nameOf = (id) => rows.find((i) => i.id === id)?.name || `#${id}`;
 
   const handleToggleStatus = async (id, currentStatus) => {
-    const action = currentStatus === 1 ? "deactivate" : "activate";
+    const activating = currentStatus !== "ACTIVE";
+    const action = activating ? "activate" : "deactivate";
     const result = await Swal.fire({
       title: `Are you sure?`,
       text: `Do you want to ${action} this industry?`,
@@ -166,15 +174,52 @@ export const useIndustryManagement = () => {
     if (!result.isConfirmed) return;
 
     try {
-      await toggleIndustryStatusAPI(id);
+      const updated = await setIndustryStatusAPI(id, activating ? "ACTIVE" : "INACTIVE");
+      setRows((prev) => prev.map((i) => (i.id === id ? { ...i, ...updated } : i)));
       Swal.fire("Success!", `Industry ${action}d successfully.`, "success");
-      fetchIndustries(); // directly refetch
+      // A status filter may now exclude this row
+      if (filters.status) fetchIndustries();
     } catch (error) {
-      console.error("Error toggling status:", error);
       Swal.fire({
         icon: "error",
         title: "Action failed",
-        text: error.response?.data?.message || "Something went wrong",
+        text: apiError(error, "Something went wrong").message,
+      });
+    }
+  };
+
+  const handleDelete = async (industry) => {
+    const result = await Swal.fire({
+      title: "Delete industry?",
+      text: `"${industry.name}" will be permanently deleted. This can't be undone.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, delete it",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await deleteIndustryAPI(industry.id);
+      setSelectedIds((prev) => prev.filter((sid) => sid !== industry.id));
+      refresh();
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "Industry deleted successfully.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+    } catch (error) {
+      // 409 CONFLICT carries a friendly "still used by ..." message
+      const { code, message } = apiError(error, "Something went wrong");
+      Swal.fire({
+        icon: code === "CONFLICT" ? "warning" : "error",
+        title: code === "CONFLICT" ? "Can't delete this industry" : "Delete failed",
+        text: message,
       });
     }
   };
@@ -198,22 +243,21 @@ export const useIndustryManagement = () => {
     if (!result.isConfirmed) return;
 
     try {
-      await bulkToggleIndustryStatusAPI(selectedIds, activate ? 1 : 0);
+      const res = await bulkIndustryStatusAPI(selectedIds, activate ? "ACTIVE" : "INACTIVE");
       setSelectedIds([]);
-      fetchIndustries();
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: `Selected industries have been ${actionText}d.`,
-        timer: 1500,
-        showConfirmButton: false,
+      showBulkResult({
+        result: res,
+        noun: "industry",
+        nounPlural: "industries",
+        verb: `${actionText}d`,
+        nameOf,
       });
+      fetchIndustries();
     } catch (error) {
       Swal.fire({
         icon: "error",
         title: "Error",
-        text: `Failed to ${actionText} selected industries.`,
+        text: apiError(error, "Something went wrong").message,
       });
     }
   };
@@ -226,8 +270,8 @@ export const useIndustryManagement = () => {
     const count = selectedIds.length;
 
     const result = await Swal.fire({
-      title: "Are you sure?",
-      text: `${count} selected industr${count > 1 ? "ies" : "y"} will be permanently deleted.`,
+      title: "Delete selected industries?",
+      text: `${count} selected industr${count > 1 ? "ies" : "y"} will be permanently deleted. Industries still in use are skipped.`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, delete",
@@ -239,22 +283,21 @@ export const useIndustryManagement = () => {
     if (!result.isConfirmed) return;
 
     try {
-      await bulkDeleteIndustriesAPI(selectedIds);
+      const res = await bulkDeleteIndustriesAPI(selectedIds);
       setSelectedIds([]);
-      fetchIndustries();
-
-      Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Selected industries have been deleted.",
-        timer: 1500,
-        showConfirmButton: false,
+      showBulkResult({
+        result: res,
+        noun: "industry",
+        nounPlural: "industries",
+        verb: "deleted",
+        nameOf,
       });
+      refresh();
     } catch (error) {
       Swal.fire({
         icon: "error",
         title: "Error",
-        text: "Failed to delete selected industries.",
+        text: apiError(error, "Something went wrong").message,
       });
     }
   };
@@ -270,9 +313,9 @@ export const useIndustryManagement = () => {
     setPage,
     handleSearch,
     handleClear,
-    handleDelete,
     handleToggleStatus,
-    refresh: fetchIndustries,
+    handleDelete,
+    refresh,
     selectedIds,
     toggleSelectIndustry,
     toggleSelectAll,
@@ -281,5 +324,6 @@ export const useIndustryManagement = () => {
     handleBulkDelete,
     sortConfig,
     handleSort,
+    hasDesignationCounts: withDesignations,
   };
 };

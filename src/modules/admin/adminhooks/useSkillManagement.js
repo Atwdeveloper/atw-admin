@@ -1,75 +1,125 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Swal from "sweetalert2";
 import {
-  getSkillsAPI,
+  getSkillsPageAPI,
+  getDesignationAPI,
+  setSkillStatusAPI,
   deleteSkillAPI,
-  toggleSkillStatusAPI,
+  bulkSkillStatusAPI,
   bulkDeleteSkillsAPI,
-  bulkToggleSkillStatusAPI,
-} from "../../../api/admin/adminSkillAPI";
+} from "../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../api/javaApi";
+import { useDebounce } from "../../../common/hooks/useDebounce";
+import { showBulkResult } from "../utils/bulkResult";
 
+export const PAGE_SIZE = 10;
+
+// Backend only accepts these sort fields (anything else is a 400).
+const SORTABLE = ["name", "status", "createdAt"];
+
+// Skills of one designation, paged/filtered/sorted on the server.
 export const useSkillManagement = (designationId) => {
   const [skills, setSkills] = useState([]);
+  const [designation, setDesignation] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const [filters, setFilters] = useState({
     search: "",
-    status: "",
+    status: "", // "" | "ACTIVE" | "INACTIVE"
   });
+  const debouncedSearch = useDebounce(filters.search, 400).trim();
   const [selectedIds, setSelectedIds] = useState([]);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
   const handleSort = (key) => {
+    if (!SORTABLE.includes(key)) return;
     setSortConfig((prev) => {
       if (prev.key !== key) return { key, direction: "asc" };
       if (prev.direction === "asc") return { key, direction: "desc" };
       return { key: null, direction: "asc" };
     });
-    setPage(1);
   };
+
+  // Ignore responses from requests that were superseded
+  const requestSeq = useRef(0);
 
   const fetchSkills = useCallback(async () => {
     if (!designationId) return;
+    const seq = ++requestSeq.current;
     setLoading(true);
+    setLoadError("");
     try {
-      const params = {
-        page,
-        limit: 10,
-        search: filters.search || undefined,
-        status: filters.status || undefined,
-        designation_id: designationId,
-        sort_by: sortConfig.key || undefined,
-        sort_dir: sortConfig.key ? sortConfig.direction : undefined,
-      };
-      const response = await getSkillsAPI(params);
-      const responseData = response.data;
-      setSkills(responseData.data || []);
-      setTotalPages(responseData.last_page || 1);
-      setTotalRecords(responseData.total || 0);
+      const res = await getSkillsPageAPI({
+        designationIds: [designationId],
+        statuses: filters.status ? [filters.status] : undefined,
+        search: debouncedSearch || undefined,
+        page: page - 1,
+        size: PAGE_SIZE,
+        sort: sortConfig.key ? `${sortConfig.key},${sortConfig.direction}` : undefined,
+      });
+      if (seq !== requestSeq.current) return;
+
+      const content = res?.content || [];
+      const pages = res?.totalPages || 0;
+      // Current page vanished (e.g. last row deleted) — step back to the last real page.
+      if (content.length === 0 && page > 1 && pages < page) {
+        setPage(Math.max(1, pages));
+        return;
+      }
+      setSkills(content);
+      setTotalRecords(res?.totalElements ?? content.length);
+      setTotalPages(Math.max(1, pages));
     } catch (error) {
-      console.error("Error fetching skills:", error);
-      // Swal.fire({
-      //   icon: "error",
-      //   title: "Failed to load skills",
-      //   text: error.response?.data?.message || "Something went wrong",
-      // });
+      if (seq !== requestSeq.current) return;
+      setSkills([]);
+      setTotalRecords(0);
+      setTotalPages(1);
+      setLoadError(apiError(error, "Couldn't load skills.").message);
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
-  }, [designationId, page, filters.search, filters.status, sortConfig]);
+  }, [designationId, filters.status, debouncedSearch, page, sortConfig]);
+
+  // A filter or sort change goes back to page 1 (and clears the selection)
+  // before fetching, so we never request a stale page with new filters.
+  const filterKey = JSON.stringify([
+    designationId,
+    debouncedSearch,
+    filters.status,
+    sortConfig.key,
+    sortConfig.direction,
+  ]);
+  const lastFilterKey = useRef(filterKey);
 
   useEffect(() => {
+    if (lastFilterKey.current !== filterKey) {
+      lastFilterKey.current = filterKey;
+      setSelectedIds([]);
+      if (page !== 1) {
+        setPage(1);
+        return;
+      }
+    }
     fetchSkills();
-  }, [fetchSkills]);
+  }, [filterKey, page, fetchSkills]);
 
-  // Selection is tied to the current page/filters — reset it whenever either changes
+  // Selection is tied to the current page — reset it when the page changes
   useEffect(() => {
     setSelectedIds([]);
-  }, [page, filters.search, filters.status]);
+  }, [page]);
+
+  // Designation details for the header/breadcrumb
+  useEffect(() => {
+    if (!designationId) return;
+    getDesignationAPI(designationId)
+      .then(setDesignation)
+      .catch(() => setDesignation(null));
+  }, [designationId]);
 
   const toggleSelectSkill = (id) => {
     setSelectedIds((prev) =>
@@ -83,45 +133,15 @@ export const useSkillManagement = (designationId) => {
     );
   };
 
-  const handleSearch = () => {
-    setPage(1);
-    fetchSkills();
-  };
+  const nameOf = (id) => skills.find((s) => s.id === id)?.name || id;
 
   const handleClear = () => {
     setFilters({ search: "", status: "" });
-    setPage(1);
-  };
-
-  const handleDelete = async (id) => {
-    const result = await Swal.fire({
-      title: "Are you sure?",
-      text: "You won't be able to revert this!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
-      confirmButtonText: "Yes, delete it!",
-    });
-
-    if (!result.isConfirmed) return;
-
-    try {
-      await deleteSkillAPI(id);
-      Swal.fire("Deleted!", "Skill has been deleted.", "success");
-      fetchSkills();
-    } catch (error) {
-      console.error("Error deleting skill:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Delete failed",
-        text: error.response?.data?.message || "Something went wrong",
-      });
-    }
   };
 
   const handleToggleStatus = async (id, currentStatus) => {
-    const action = currentStatus === 1 ? "deactivate" : "activate";
+    const activating = currentStatus !== "ACTIVE";
+    const action = activating ? "activate" : "deactivate";
     const result = await Swal.fire({
       title: `Are you sure?`,
       text: `Do you want to ${action} this skill?`,
@@ -133,15 +153,50 @@ export const useSkillManagement = (designationId) => {
     if (!result.isConfirmed) return;
 
     try {
-      await toggleSkillStatusAPI(id);
+      await setSkillStatusAPI(id, activating ? "ACTIVE" : "INACTIVE");
       Swal.fire("Success!", `Skill ${action}d successfully.`, "success");
+      // Refetch: with a status filter applied the row may drop off this page.
       fetchSkills();
     } catch (error) {
-      console.error("Error toggling status:", error);
       Swal.fire({
         icon: "error",
         title: "Action failed",
-        text: error.response?.data?.message || "Something went wrong",
+        text: apiError(error).message,
+      });
+    }
+  };
+
+  const handleDelete = async (id, name) => {
+    const result = await Swal.fire({
+      title: "Delete skill?",
+      text: `"${name || "This skill"}" will be permanently deleted. This cannot be undone.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, delete it",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await deleteSkillAPI(id);
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "Skill deleted successfully.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      setSelectedIds((prev) => prev.filter((sid) => sid !== id));
+      fetchSkills();
+    } catch (error) {
+      // 409 CONFLICT carries a friendly "still in use" message
+      Swal.fire({
+        icon: "error",
+        title: "Couldn't delete skill",
+        text: apiError(error, "Failed to delete skill").message,
       });
     }
   };
@@ -165,22 +220,15 @@ export const useSkillManagement = (designationId) => {
     if (!result.isConfirmed) return;
 
     try {
-      await bulkToggleSkillStatusAPI(selectedIds, activate ? 1 : 0);
+      const res = await bulkSkillStatusAPI(selectedIds, activate ? "ACTIVE" : "INACTIVE");
       setSelectedIds([]);
       fetchSkills();
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: `Selected skills have been ${actionText}d.`,
-        timer: 1500,
-        showConfirmButton: false,
-      });
+      showBulkResult({ result: res, noun: "skill", verb: `${actionText}d`, nameOf });
     } catch (error) {
       Swal.fire({
         icon: "error",
-        title: "Error",
-        text: `Failed to ${actionText} selected skills.`,
+        title: "Action failed",
+        text: apiError(error).message,
       });
     }
   };
@@ -193,8 +241,8 @@ export const useSkillManagement = (designationId) => {
     const count = selectedIds.length;
 
     const result = await Swal.fire({
-      title: "Are you sure?",
-      text: `${count} selected skill${count > 1 ? "s" : ""} will be permanently deleted.`,
+      title: "Delete skills?",
+      text: `${count} selected skill${count > 1 ? "s" : ""} will be permanently deleted. Skills still in use will be skipped.`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, delete",
@@ -206,39 +254,33 @@ export const useSkillManagement = (designationId) => {
     if (!result.isConfirmed) return;
 
     try {
-      await bulkDeleteSkillsAPI(selectedIds);
+      const res = await bulkDeleteSkillsAPI(selectedIds);
       setSelectedIds([]);
       fetchSkills();
-
-      Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Selected skills have been deleted.",
-        timer: 1500,
-        showConfirmButton: false,
-      });
+      showBulkResult({ result: res, noun: "skill", verb: "deleted", nameOf });
     } catch (error) {
       Swal.fire({
         icon: "error",
-        title: "Error",
-        text: "Failed to delete selected skills.",
+        title: "Delete failed",
+        text: apiError(error).message,
       });
     }
   };
 
   return {
     skills,
+    designation,
     loading,
+    loadError,
     page,
     totalPages,
     totalRecords,
     filters,
     setFilters,
     setPage,
-    handleSearch,
     handleClear,
-    handleDelete,
     handleToggleStatus,
+    handleDelete,
     refresh: fetchSkills,
     selectedIds,
     toggleSelectSkill,

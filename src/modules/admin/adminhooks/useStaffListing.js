@@ -8,8 +8,56 @@ import {
   setStaffStatusAPI,
 } from "../../../api/adminV1/staffAPI";
 import { getRolesAPI } from "../../../api/adminV1/roleAPI";
+import { getStatesAPI, getCitiesAPI } from "../../../api/adminV1/geographyAPI";
 import { apiError } from "../../../api/javaApi";
 import { useAuth } from "../../../common/hooks/useAuth";
+import { useDebounce } from "../../../common/hooks/useDebounce";
+
+// tab: "" (all) | "ACTIVE" | "DISABLED" | "INCOMPLETE" (invite pending — never logged in)
+export const defaultStaffFilters = {
+  search: "",
+  tab: "",
+  roleIds: [],
+  stateIds: [],
+  cityIds: [],
+  createdFrom: "", // YYYY-MM-DD
+  createdTo: "",
+};
+
+// Filters in the shape the list endpoint will accept once the backend adds them.
+const toQuery = (f) => ({
+  search: f.search.trim() || undefined,
+  statuses: f.tab === "ACTIVE" || f.tab === "DISABLED" ? [f.tab] : undefined,
+  roleIds: f.roleIds,
+  stateIds: f.stateIds,
+  cityIds: f.cityIds,
+  createdFrom: f.createdFrom || undefined,
+  createdTo: f.createdTo || undefined,
+});
+
+const dayOf = (iso) => (iso ? String(iso).slice(0, 10) : "");
+
+// Until the backend filters, apply what we can to the loaded page. State/city
+// can't be checked here — the list rows carry no address.
+const matchesOnPage = (s, f) => {
+  const q = f.search.trim().toLowerCase();
+  if (
+    q &&
+    !(
+      s.fullName?.toLowerCase().includes(q) ||
+      s.email?.toLowerCase().includes(q) ||
+      s.username?.toLowerCase().includes(q) ||
+      s.phone?.includes(q)
+    )
+  )
+    return false;
+  if ((f.tab === "ACTIVE" || f.tab === "DISABLED") && s.status !== f.tab) return false;
+  if (f.tab === "INCOMPLETE" && s.lastLoginAt) return false;
+  if (f.roleIds.length && !s.roles?.some((r) => f.roleIds.includes(r.id))) return false;
+  if (f.createdFrom && dayOf(s.createdAt) < f.createdFrom) return false;
+  if (f.createdTo && dayOf(s.createdAt) > f.createdTo) return false;
+  return true;
+};
 
 const PAGE_SIZE = 10;
 
@@ -22,18 +70,44 @@ export const useStaffListing = () => {
   const [totalRecords, setTotalRecords] = useState(0);
   const [roles, setRoles] = useState([]);
 
-  // The backend has no search/filter params, so these apply to the loaded page.
-  const defaultFilters = { search: "", status: "", roleId: "" };
-  const [filters, setFilters] = useState(defaultFilters);
+  const [filters, setFilters] = useState(defaultStaffFilters);
+  const debouncedFilters = useDebounce(filters, 500);
+  const [states, setStates] = useState([]);
+  const [cities, setCities] = useState([]);
+
+  // Sorting is done by the backend across all staff (Spring "field,dir").
+  // With no column sort, newest first.
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+  const handleSort = (key) => {
+    setSortConfig((prev) => {
+      if (prev.key !== key) return { key, direction: "asc" };
+      if (prev.direction === "asc") return { key, direction: "desc" };
+      return { key: null, direction: "asc" };
+    });
+    setPage(1);
+  };
 
   const fetchStaffs = useCallback(async () => {
     setLoading(true);
+    const sort = sortConfig.key ? `${sortConfig.key},${sortConfig.direction}` : "createdAt,desc";
     try {
-      const result = await getStaffListAPI({ page: page - 1, size: PAGE_SIZE, sort: "createdAt,desc" });
+      const result = await getStaffListAPI({
+        page: page - 1,
+        size: PAGE_SIZE,
+        sort,
+        ...toQuery(debouncedFilters),
+      });
       setStaffs(result.content || []);
       setTotalPages(Math.max(1, result.totalPages || 1));
       setTotalRecords(result.totalElements || 0);
     } catch (error) {
+      const err = apiError(error);
+      // An unsupported sort field is a 400 — fall back to the default order.
+      if (sortConfig.key && err.code === "VALIDATION_ERROR") {
+        Swal.fire({ icon: "info", title: "Can't sort by this column", text: err.message });
+        setSortConfig({ key: null, direction: "asc" });
+        return;
+      }
       console.error("Failed to fetch staff:", error);
       setStaffs([]);
       setTotalPages(1);
@@ -41,34 +115,59 @@ export const useStaffListing = () => {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, sortConfig, debouncedFilters]);
 
   useEffect(() => {
     fetchStaffs();
   }, [fetchStaffs]);
 
-  // For the role filter (needs admin_roles.view; the filter just hides without it)
+  // A filter change goes back to page 1.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedFilters]);
+
+  // Role filter options (needs admin_roles.view; the filter just hides without it), and states.
   useEffect(() => {
     getRolesAPI()
       .then((list) => setRoles(list || []))
       .catch(() => setRoles([]));
+    getStatesAPI()
+      .then((list) => setStates(Array.isArray(list) ? list : []))
+      .catch(() => setStates([]));
   }, []);
 
-  const visibleStaffs = useMemo(() => {
-    const q = filters.search.trim().toLowerCase();
-    return staffs.filter(
-      (s) =>
-        (!q ||
-          s.fullName?.toLowerCase().includes(q) ||
-          s.email?.toLowerCase().includes(q) ||
-          s.username?.toLowerCase().includes(q) ||
-          s.phone?.includes(q)) &&
-        (!filters.status || s.status === filters.status) &&
-        (!filters.roleId || s.roles?.some((r) => r.id === filters.roleId)),
-    );
-  }, [staffs, filters]);
+  // City options = cities of the selected states; drop picked cities that no longer fit.
+  const stateKey = filters.stateIds.join(",");
+  useEffect(() => {
+    let cancelled = false;
+    const ids = stateKey ? stateKey.split(",") : [];
+    if (ids.length === 0) {
+      setCities([]);
+      setFilters((prev) => (prev.cityIds.length ? { ...prev, cityIds: [] } : prev));
+      return;
+    }
+    Promise.all(ids.map((id) => getCitiesAPI(id).catch(() => []))).then((lists) => {
+      if (cancelled) return;
+      const all = lists.flatMap((l) => (Array.isArray(l) ? l : []));
+      const allowed = new Set(all.map((c) => c.id));
+      setCities(all);
+      setFilters((prev) =>
+        prev.cityIds.every((id) => allowed.has(id))
+          ? prev
+          : { ...prev, cityIds: prev.cityIds.filter((id) => allowed.has(id)) },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [stateKey]);
 
-  const handleClear = () => setFilters(defaultFilters);
+  const visibleStaffs = useMemo(
+    () => staffs.filter((s) => matchesOnPage(s, filters)),
+    [staffs, filters],
+  );
+
+  const handleClear = () => setFilters(defaultStaffFilters);
 
   // The backend refuses actions on your own account or a super-admin.
   const canActOn = (staff) => staff.id !== user?.id && !staff.superAdmin;
@@ -135,6 +234,8 @@ export const useStaffListing = () => {
     staffs: visibleStaffs,
     pageCount: staffs.length,
     roles,
+    states,
+    cities,
     loading,
     page,
     totalPages,
@@ -142,6 +243,8 @@ export const useStaffListing = () => {
     setPage,
     filters,
     setFilters,
+    sortConfig,
+    handleSort,
     handleClear,
     handleDelete,
     handleToggleStatus,

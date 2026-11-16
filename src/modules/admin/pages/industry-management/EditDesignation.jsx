@@ -1,41 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useParams, useSearchParams } from "@/lib/navigation";
-import { Save, Image as ImageIcon } from "lucide-react";
+import { Save, Image as ImageIcon, Trash2 } from "lucide-react";
 import Swal from "sweetalert2";
 import {
   containerVariants,
   itemVariants,
 } from "../../../../common/utils/motionVariants";
 import {
-  getDesignationByIdAPI,
-  // Old, industry-unaware update endpoint — replaced by updateDesignationByIndustryAPI below.
-  // updateDesignationAPI,
-  updateDesignationByIndustryAPI,
-} from "../../../../api/admin/adminDesignationAPI";
-import { getMinimumWageInitAPI } from "../../../../api/admin/adminMinimumWageAPI";
+  ICON_TYPES,
+  assignDesignationSkillCategoryAPI,
+  clearDesignationSkillCategoryAPI,
+  getDesignationAPI,
+  getSkillCategoriesAPI,
+  removeDesignationImageAPI,
+  setDesignationStatusAPI,
+  updateDesignationAPI,
+  uploadDesignationImageAPI,
+  validateIcon,
+} from "../../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
 
-// Backend validation errors (e.g. an invalid image file) arrive as
-// `{ message: "Validation failed.", data: { image: ["..."] } }` — the generic
-// `message` alone hides the actual reason, so prefer the first field-specific
-// error when one is present.
-const extractApiErrorMessage = (payload, fallback = "Something went wrong") => {
-  const data = payload?.data;
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    const firstKey = Object.keys(data)[0];
-    if (firstKey) {
-      const value = data[firstKey];
-      const firstMessage = Array.isArray(value) ? value[0] : value;
-      if (firstMessage) return firstMessage;
-    }
-  }
-  return payload?.message || fallback;
-};
+const NAME_MAX = 150;
 
 const EditDesignation = () => {
   const { id: industryId, designation_id } = useParams();
@@ -47,70 +38,75 @@ const EditDesignation = () => {
 
   const [formData, setFormData] = useState({
     name: "",
-    skill_category_id: "",
-    status: 1,
+    skillCategoryId: "",
+    status: "ACTIVE",
     image: null,
   });
+  // The designation as last loaded — what "changed" is measured against.
+  const [original, setOriginal] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  const [existingImage, setExistingImage] = useState(null);
-  const [errors, setErrors] = useState({
-    name: "",
-  });
+  const [removeImage, setRemoveImage] = useState(false);
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [skillCategories, setSkillCategories] = useState([]);
 
+  const listingPath = `/admin/industries/designations/${industryId}?name=${encodeURIComponent(industryName)}`;
+  const canToggleStatus = hasPermission("designation", "toggle_status");
+
+  const loadDesignation = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [designation, categories] = await Promise.all([
+        getDesignationAPI(designation_id),
+        // Needs skill_category.view; without it only the assigned id is known.
+        getSkillCategoriesAPI().catch(() => []),
+      ]);
+      // Active categories, plus the assigned one even if it's been deactivated
+      setSkillCategories(
+        (categories || []).filter(
+          (c) => c.status === "ACTIVE" || c.id === designation.skillCategoryId,
+        ),
+      );
+      setOriginal(designation);
+      setFormData({
+        name: designation.name || "",
+        skillCategoryId: designation.skillCategoryId || "",
+        status: designation.status || "ACTIVE",
+        image: null,
+      });
+      setImagePreview(designation.imageUrl || null);
+      setRemoveImage(false);
+    } catch (error) {
+      await Swal.fire({
+        icon: "error",
+        title: "Failed to load designation",
+        text: apiError(error).message,
+      });
+      navigate(listingPath);
+    } finally {
+      setLoading(false);
+    }
+  }, [designation_id, listingPath, navigate]);
+
   useEffect(() => {
-    const fetchDesignation = async () => {
-      try {
-        setLoading(true);
-        const [initResponse, designationResponse] = await Promise.all([
-          getMinimumWageInitAPI(),
-          getDesignationByIdAPI(designation_id),
-        ]);
-        setSkillCategories(initResponse.data?.skill_categories || []);
-
-        // Assuming response structure: { data: { id, name, status, ... } }
-        const designation =
-          designationResponse.data.data || designationResponse.data; // adjust as needed
-        setFormData({
-          name: designation.name,
-          skill_category_id:
-            designation.skill_category_id ??
-            designation.skill_category?.id ??
-            "",
-          status: Number(designation.status ?? 1),
-          image: null,
-        });
-
-        const currentImage =
-          designation.image_url || designation.image || null;
-        if (currentImage) {
-          setExistingImage(currentImage);
-          setImagePreview(currentImage);
-        }
-      } catch (error) {
-        console.error("Error fetching designation:", error);
-        Swal.fire({
-          icon: "error",
-          title: "Failed to load designation",
-          text: error.response?.data?.message || "Something went wrong",
-        });
-        navigate(`/admin/industries/designations/${industryId}`);
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (designation_id) fetchDesignation();
-  }, [designation_id, industryId, navigate]);
+    if (designation_id) loadDesignation();
+  }, [designation_id, loadDesignation]);
 
   const handleChange = (e) => {
     const { name, value, files } = e.target;
 
     if (name === "image") {
       const file = files[0] || null;
+      const iconError = validateIcon(file);
+      setErrors((prev) => ({ ...prev, image: iconError || "" }));
+      if (iconError) {
+        e.target.value = "";
+        return;
+      }
       setFormData((prev) => ({ ...prev, image: file }));
-      setImagePreview(file ? URL.createObjectURL(file) : existingImage);
+      setRemoveImage(false);
+      setImagePreview(file ? URL.createObjectURL(file) : original?.imageUrl || null);
       return;
     }
 
@@ -120,81 +116,102 @@ const EditDesignation = () => {
     }));
 
     if (name === "name") {
-      if (value && !/^[a-zA-Z0-9\s&-]+$/.test(value)) {
-        setErrors((prev) => ({
-          ...prev,
-          name: "Special characters are not allowed",
-        }));
-      } else {
-        setErrors((prev) => ({
-          ...prev,
-          name: "",
-        }));
-      }
+      setErrors((prev) => ({ ...prev, name: "" }));
     }
   };
+
+  const handleRemoveImage = () => {
+    setFormData((prev) => ({ ...prev, image: null }));
+    setImagePreview(null);
+    setRemoveImage(Boolean(original?.imageUrl));
+  };
+
   const validate = () => {
     const newErrors = {};
 
     if (!formData.name.trim()) {
       newErrors.name = "Designation name is required";
-    } else if (!/^[a-zA-Z0-9\s&-]+$/.test(formData.name)) {
-      newErrors.name = "Special characters are not allowed";
+    } else if (formData.name.trim().length > NAME_MAX) {
+      newErrors.name = `Designation name must be at most ${NAME_MAX} characters`;
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
 
     setSubmitting(true);
     try {
-      // Old call, kept for reference:
-      // await updateDesignationAPI(designation_id, formData);
-      const payload = new FormData();
-      payload.append("name", formData.name);
-      if (formData.skill_category_id) {
-        payload.append("skill_category_id", formData.skill_category_id);
-      }
-      payload.append("status", formData.status);
-      if (formData.image) {
-        payload.append("image", formData.image);
-      }
-      const response = await updateDesignationByIndustryAPI(
-        industryId,
-        designation_id,
-        payload,
-      );
-
-      if (response?.status && response.status !== 200) {
-        Swal.fire({
-          icon: "error",
-          title: "Failed to update designation",
-          text: extractApiErrorMessage(response),
-        });
-        return;
-      }
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: "Designation updated successfully",
-        timer: 1500,
-        showConfirmButton: false,
+      // Full replace of name + industries; keep every industry it already belongs to.
+      const industryIds = (original?.industries || []).map((i) => i.id);
+      await updateDesignationAPI(designation_id, {
+        name: formData.name.trim(),
+        industryIds: industryIds.length ? industryIds : [industryId],
       });
-      navigate(`/admin/industries/designations/${industryId}`);
     } catch (error) {
-      console.error("Error updating designation:", error);
+      const { code, message, fieldErrors } = apiError(error, "Failed to update designation");
+      const nameError =
+        fieldErrors.name || (code === "CONFLICT" ? message : "");
+      if (nameError) setErrors((prev) => ({ ...prev, name: nameError }));
       Swal.fire({
         icon: "error",
         title: "Failed to update designation",
-        text: extractApiErrorMessage(error.response?.data),
+        text: nameError || message,
       });
-    } finally {
       setSubmitting(false);
+      return;
     }
+
+    // Skill category, status and icon each have their own endpoint; only
+    // call the ones that actually changed.
+    const problems = [];
+    const run = async (label, call) => {
+      try {
+        await call();
+      } catch (error) {
+        problems.push(`${label}: ${apiError(error).message}`);
+      }
+    };
+
+    if (formData.skillCategoryId !== (original?.skillCategoryId || "")) {
+      await run("Skill category", () =>
+        formData.skillCategoryId
+          ? assignDesignationSkillCategoryAPI(designation_id, formData.skillCategoryId)
+          : clearDesignationSkillCategoryAPI(designation_id),
+      );
+    }
+    if (canToggleStatus && formData.status !== original?.status) {
+      await run("Status", () => setDesignationStatusAPI(designation_id, formData.status));
+    }
+    if (formData.image) {
+      await run("Image", () => uploadDesignationImageAPI(designation_id, formData.image));
+    } else if (removeImage) {
+      await run("Image", () => removeDesignationImageAPI(designation_id));
+    }
+    setSubmitting(false);
+
+    if (problems.length) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Saved, with some problems",
+        html: `The name was saved, but:<br><br>${problems.join("<br>")}`,
+      });
+      // Stay here, showing what was actually saved.
+      loadDesignation();
+      return;
+    }
+
+    Swal.fire({
+      icon: "success",
+      title: "Success!",
+      text: "Designation updated successfully",
+      timer: 1500,
+      showConfirmButton: false,
+    });
+    navigate(listingPath);
   };
 
   if (permissionsLoading || loading) {
@@ -216,9 +233,7 @@ const EditDesignation = () => {
             You don't have permission to edit designations.
           </p>
           <button
-            onClick={() =>
-              navigate(`/admin/industries/designations/${industryId}`)
-            }
+            onClick={() => navigate(listingPath)}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             Go Back
@@ -227,6 +242,8 @@ const EditDesignation = () => {
       </div>
     );
   }
+
+  const otherIndustries = (original?.industries || []).filter((i) => i.id !== industryId);
 
   return (
     <motion.div
@@ -239,24 +256,13 @@ const EditDesignation = () => {
         <Breadcrumb
           items={[
             { label: "All Industries", path: "/admin/industries" },
-            {
-              label: industryName,
-              path: `/admin/industries/designations/${industryId}?name=${encodeURIComponent(
-                industryName,
-              )}`,
-            },
-            { label: `Edit : ${formData.name}` },
+            { label: industryName, path: listingPath },
+            { label: `Edit : ${original?.name || formData.name}` },
           ]}
         />
       </motion.div>
       <motion.div className="" variants={itemVariants}>
         <div className="flex items-center gap-4 mb-6">
-          {/* <button
-            onClick={() => navigate(`/admin/industries/designations/${industryId}`)}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-700" />
-          </button> */}
           <h1 className="text-2xl font-bold text-gray-800">Edit Designation</h1>
         </div>
 
@@ -277,7 +283,7 @@ const EditDesignation = () => {
               name="name"
               value={formData.name}
               onChange={handleChange}
-              onBlur={() => validate()}
+              maxLength={NAME_MAX}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                 errors.name ? "border-red-500" : "border-gray-300"
               }`}
@@ -287,29 +293,42 @@ const EditDesignation = () => {
             {errors.name && (
               <p className="mt-1 text-sm text-red-600">{errors.name}</p>
             )}
+            {otherIndustries.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                Also part of: {otherIndustries.map((i) => i.name).join(", ")}
+              </p>
+            )}
           </div>
 
           <div>
             <label
-              htmlFor="skill_category_id"
+              htmlFor="skillCategoryId"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
               Skill Category
             </label>
             <select
-              id="skill_category_id"
-              name="skill_category_id"
-              value={formData.skill_category_id}
+              id="skillCategoryId"
+              name="skillCategoryId"
+              value={formData.skillCategoryId}
               onChange={handleChange}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Not assigned</option>
+              {formData.skillCategoryId &&
+                !skillCategories.some((c) => c.id === formData.skillCategoryId) && (
+                  <option value={formData.skillCategoryId}>Current category</option>
+                )}
               {skillCategories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
+                  {category.status !== "ACTIVE" ? " (inactive)" : ""}
                 </option>
               ))}
             </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Used to look up the minimum wage for this designation.
+            </p>
           </div>
 
           <div>
@@ -335,14 +354,30 @@ const EditDesignation = () => {
                 type="file"
                 id="image"
                 name="image"
-                accept="image/*"
+                accept={ICON_TYPES.join(",")}
                 onChange={handleChange}
                 className="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
+              {imagePreview && (
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="flex items-center gap-1 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 flex-shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Remove
+                </button>
+              )}
             </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Leave empty to keep the current image.
-            </p>
+            {errors.image ? (
+              <p className="mt-1 text-sm text-red-600">{errors.image}</p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">
+                {removeImage
+                  ? "The current image will be removed when you save."
+                  : "PNG, JPEG or WEBP, up to 2MB. Leave empty to keep the current image."}
+              </p>
+            )}
           </div>
 
           <div>
@@ -354,10 +389,11 @@ const EditDesignation = () => {
                 <input
                   type="radio"
                   name="status"
-                  value="1"
-                  checked={Number(formData.status) === 1}
+                  value="ACTIVE"
+                  checked={formData.status === "ACTIVE"}
+                  disabled={!canToggleStatus}
                   onChange={() =>
-                    setFormData((prev) => ({ ...prev, status: 1 }))
+                    setFormData((prev) => ({ ...prev, status: "ACTIVE" }))
                   }
                   className="w-4 h-4 text-blue-600"
                 />
@@ -367,28 +403,28 @@ const EditDesignation = () => {
                 <input
                   type="radio"
                   name="status"
-                  value="0"
-                  checked={Number(formData.status) === 0}
+                  value="INACTIVE"
+                  checked={formData.status === "INACTIVE"}
+                  disabled={!canToggleStatus}
                   onChange={() =>
-                    setFormData((prev) => ({ ...prev, status: 0 }))
+                    setFormData((prev) => ({ ...prev, status: "INACTIVE" }))
                   }
                   className="w-4 h-4 text-blue-600"
                 />
                 <span>Inactive</span>
               </label>
             </div>
+            {!canToggleStatus && (
+              <p className="text-xs text-gray-400 mt-1">
+                You don't have permission to change the status.
+              </p>
+            )}
           </div>
 
           <div className="flex justify-end gap-3">
             <button
               type="button"
-              onClick={() =>
-                navigate(
-                  `/admin/industries/designations/${industryId}?name=${encodeURIComponent(
-                    industryName,
-                  )}`,
-                )
-              }
+              onClick={() => navigate(listingPath)}
               className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
             >
               Cancel

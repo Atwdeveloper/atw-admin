@@ -9,7 +9,13 @@ import {
   containerVariants,
   itemVariants,
 } from "../../../../common/utils/motionVariants";
-import { addSkillAPI } from "../../../../api/admin/adminSkillAPI";
+import {
+  createSkillAPI,
+  uploadSkillImageAPI,
+  validateIcon,
+  ICON_TYPES,
+} from "../../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
@@ -24,11 +30,11 @@ const AddSkill = () => {
   const designationName = params.get("designationName") || "Designation";
   const industryName = params.get("industryName") || "Industry";
   const industryId = params.get("industryId");
-  const skillsListPath = `/admin/industries/designations/${designationId}/skills?designationName=${encodeURIComponent(designationName)}&industryId=${industryId || ""}&industryName=${encodeURIComponent(industryName)}`;
+  const listQuery = `designationName=${encodeURIComponent(designationName)}&industryId=${industryId || ""}&industryName=${encodeURIComponent(industryName)}`;
+  const skillsListPath = `/admin/industries/designations/${designationId}/skills?${listQuery}`;
 
   const [formData, setFormData] = useState({
     name: "",
-    designation_id: designationId,
     image: null,
   });
 
@@ -45,7 +51,13 @@ const AddSkill = () => {
     const { name, value, files } = e.target;
 
     if (name === "image") {
-      const file = files[0];
+      const file = files[0] || null;
+      const iconError = validateIcon(file);
+      if (iconError) {
+        e.target.value = "";
+        setErrors((prev) => ({ ...prev, image: iconError }));
+        return;
+      }
 
       setFormData((prev) => ({
         ...prev,
@@ -77,10 +89,8 @@ const AddSkill = () => {
 
     if (!formData.name.trim()) {
       newErrors.name = "Skill name is required";
-    }
-
-    if (!formData.image) {
-      newErrors.image = "Skill image is required";
+    } else if (formData.name.trim().length > 150) {
+      newErrors.name = "Skill name must be at most 150 characters";
     }
 
     setErrors(newErrors);
@@ -95,32 +105,51 @@ const AddSkill = () => {
 
     setSubmitting(true);
 
+    let created;
     try {
-      const data = new FormData();
-      data.append("name", formData.name);
-      data.append("designation_id", formData.designation_id);
-      data.append("image", formData.image);
-
-      await addSkillAPI(data);
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: "Skill added successfully",
-        timer: 1500,
-        showConfirmButton: false,
+      created = await createSkillAPI({
+        name: formData.name.trim(),
+        designationId,
       });
-
-      navigate(skillsListPath);
     } catch (error) {
-      Swal.fire({
-        icon: "error",
-        title: "Failed",
-        text: error.response?.data?.message || "Something went wrong",
-      });
-    } finally {
+      const { code, message, fieldErrors } = apiError(error, "Couldn't add the skill");
+      if (code === "CONFLICT") {
+        setErrors((prev) => ({ ...prev, name: "A skill with this name already exists under this designation" }));
+      } else if (fieldErrors.name) {
+        setErrors((prev) => ({ ...prev, name: fieldErrors.name }));
+      }
+      Swal.fire({ icon: "error", title: "Failed", text: message });
       setSubmitting(false);
+      return;
     }
+
+    // The icon is a separate upload once the skill exists.
+    if (formData.image) {
+      try {
+        await uploadSkillImageAPI(created.id, formData.image);
+      } catch (error) {
+        setSubmitting(false);
+        await Swal.fire({
+          icon: "warning",
+          title: "Skill added, image not saved",
+          text: `${apiError(error).message} You can upload it again from Edit Skill.`,
+        });
+        navigate(`/admin/industries/designations/${designationId}/skills/edit/${created.id}?${listQuery}`, {
+          replace: true,
+        });
+        return;
+      }
+    }
+
+    setSubmitting(false);
+    Swal.fire({
+      icon: "success",
+      title: "Success!",
+      text: "Skill added successfully",
+      timer: 1500,
+      showConfirmButton: false,
+    });
+    navigate(skillsListPath);
   };
 
   if (permissionsLoading) {
@@ -180,6 +209,8 @@ const AddSkill = () => {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
+                  maxLength={150}
+                  disabled={submitting}
                   placeholder="Enter Skill Name"
                   className={`w-full h-12 rounded-xl border px-4 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                     errors.name ? "border-red-500" : "border-gray-300"
@@ -192,12 +223,12 @@ const AddSkill = () => {
 
               <div>
                 <label className="block text-lg font-semibold mb-2">
-                  Skill Image
+                  Skill Image <span className="text-sm font-normal text-gray-500">(optional · PNG, JPEG or WEBP, max 2MB)</span>
                 </label>
                 <input
                   type="file"
                   name="image"
-                  accept="image/*"
+                  accept={ICON_TYPES.join(",")}
                   onChange={handleChange}
                   className={`w-full h-12 rounded-xl border px-3 py-2 focus:outline-none ${
                     errors.image ? "border-red-500" : "border-gray-300"
@@ -249,6 +280,7 @@ const AddSkill = () => {
             <button
               type="button"
               onClick={() => navigate(-1)}
+              disabled={submitting}
               className="px-6 py-2 rounded-xl border border-gray-300 hover:bg-gray-100 transition duration-200"
             >
               Cancel

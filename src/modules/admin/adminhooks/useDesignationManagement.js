@@ -1,84 +1,135 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Swal from "sweetalert2";
 import {
-  getDesignationsByIndustryAPI,
+  getDesignationsPageAPI,
+  getIndustryAPI,
+  setDesignationStatusAPI,
   deleteDesignationAPI,
-  toggleDesignationStatusAPI,
+  bulkDesignationStatusAPI,
   bulkDeleteDesignationsAPI,
-  bulkToggleDesignationStatusAPI,
-} from "../../../api/admin/adminDesignationAPI";
+} from "../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../api/javaApi";
+import { useDebounce } from "../../../common/hooks/useDebounce";
+import { showBulkResult } from "../utils/bulkResult";
 
+export const PAGE_SIZE = 10;
+
+// Backend only accepts these sort fields (anything else is a 400).
+const SORTABLE = ["name", "status", "createdAt"];
+
+// Designations of one industry, paged/filtered/sorted on the server.
 export const useDesignationManagement = (industryId) => {
   const [designations, setDesignations] = useState([]);
+  const [industry, setIndustry] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
 
-  // Pagination
+  // Pagination (UI is 1-based, API is 0-based)
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
 
-  // Filters
+  // Filters — status is "" | "ACTIVE" | "INACTIVE"
   const [filters, setFilters] = useState({
     search: "",
     status: "",
   });
+  const debouncedSearch = useDebounce(filters.search, 400).trim();
+
+  // Sorting — { key: "name" | "status" | "createdAt" | null, direction }
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+
+  const handleSort = (key) => {
+    if (!SORTABLE.includes(key)) return;
+    setSortConfig((prev) => {
+      if (prev.key !== key) return { key, direction: "asc" };
+      if (prev.direction === "asc") return { key, direction: "desc" };
+      return { key: null, direction: "asc" };
+    });
+  };
+
+  // Ignore responses from requests that were superseded
+  const requestSeq = useRef(0);
 
   // ---------------- FETCH DESIGNATIONS ----------------
   const fetchDesignations = useCallback(async () => {
     if (!industryId) return;
 
+    const seq = ++requestSeq.current;
     setLoading(true);
+    setLoadError("");
 
     try {
-      const params = {
-        page,
-        per_page: 10, // ✅ better than limit for Laravel pagination
-        search: filters.search || undefined,
-        status: filters.status || undefined,
-      };
+      const res = await getDesignationsPageAPI({
+        industryIds: [industryId],
+        statuses: filters.status ? [filters.status] : undefined,
+        search: debouncedSearch || undefined,
+        page: page - 1,
+        size: PAGE_SIZE,
+        sort: sortConfig.key ? `${sortConfig.key},${sortConfig.direction}` : undefined,
+      });
+      if (seq !== requestSeq.current) return;
 
-      const response = await getDesignationsByIndustryAPI(industryId, params);
-
-      const apiData = response.data || {};
-
-      // ✅ designation list
-      setDesignations(apiData.data || []);
-
-      // ✅ pagination fix
-      setTotalPages(apiData.last_page || 1);
-
-      // ✅ total records
-      setTotalRecords(apiData.total || 0);
+      const content = res?.content || [];
+      const pages = res?.totalPages || 0;
+      // Current page vanished (e.g. last row deleted) — step back to the last real page.
+      if (content.length === 0 && page > 1 && pages < page) {
+        setPage(Math.max(1, pages));
+        return;
+      }
+      setDesignations(content);
+      setTotalRecords(res?.totalElements ?? content.length);
+      setTotalPages(Math.max(1, pages));
     } catch (error) {
-      console.error("Error fetching designations:", error);
-
-      // Optional error alert
-      // Swal.fire({
-      //   icon: "error",
-      //   title: "Failed to load designations",
-      //   text: error.response?.data?.message || "Something went wrong",
-      // });
-
+      if (seq !== requestSeq.current) return;
       setDesignations([]);
-      setTotalPages(1);
       setTotalRecords(0);
+      setTotalPages(1);
+      setLoadError(apiError(error, "Couldn't load designations.").message);
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
-  }, [industryId, page, filters.search, filters.status]);
+  }, [industryId, filters.status, debouncedSearch, page, sortConfig]);
 
-  // ---------------- INITIAL FETCH ----------------
+  // Industry header name (the ?name= query param is only a fallback)
   useEffect(() => {
-    fetchDesignations();
-  }, [fetchDesignations]);
+    if (!industryId) return;
+    getIndustryAPI(industryId)
+      .then(setIndustry)
+      .catch(() => setIndustry(null));
+  }, [industryId]);
 
-  // Selection is tied to the current page/filters — reset it whenever either changes
+  // ---------------- FETCH ON PAGE / FILTER / SORT CHANGE ----------------
+  // A filter or sort change goes back to page 1 (and clears the selection)
+  // before fetching, so we never request a stale page with new filters.
+  const filterKey = JSON.stringify([
+    industryId,
+    debouncedSearch,
+    filters.status,
+    sortConfig.key,
+    sortConfig.direction,
+  ]);
+  const lastFilterKey = useRef(filterKey);
+
+  useEffect(() => {
+    if (lastFilterKey.current !== filterKey) {
+      lastFilterKey.current = filterKey;
+      setSelectedIds([]);
+      if (page !== 1) {
+        setPage(1);
+        return;
+      }
+    }
+    fetchDesignations();
+  }, [filterKey, page, fetchDesignations]);
+
+  // Selection is tied to the current page — reset it when the page changes
   useEffect(() => {
     setSelectedIds([]);
-  }, [page, filters.search, filters.status]);
+  }, [page]);
 
   const toggleSelectDesignation = (id) => {
     setSelectedIds((prev) =>
@@ -87,16 +138,11 @@ export const useDesignationManagement = (industryId) => {
   };
 
   const toggleSelectAll = () => {
-    setSelectedIds((prev) =>
-      prev.length === designations.length ? [] : designations.map((d) => d.id),
-    );
+    const pageIds = designations.map((d) => d.id);
+    setSelectedIds((prev) => (prev.length === pageIds.length ? [] : pageIds));
   };
 
-  // ---------------- SEARCH ----------------
-  const handleSearch = () => {
-    setPage(1);
-    fetchDesignations();
-  };
+  const nameOf = (id) => designations.find((d) => d.id === id)?.name || id;
 
   // ---------------- CLEAR FILTERS ----------------
   const handleClear = () => {
@@ -104,61 +150,12 @@ export const useDesignationManagement = (industryId) => {
       search: "",
       status: "",
     });
-
-    setPage(1);
   };
 
-  // ---------------- DELETE DESIGNATION ----------------
-
-  const handleDelete = async (id) => {
-    const result = await Swal.fire({
-      title: "Are you sure?",
-      text: "You won't be able to revert this!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
-      confirmButtonText: "Yes, delete it!",
-    });
-
-    if (!result.isConfirmed) return;
-
-    try {
-      const response = await deleteDesignationAPI(id);
-
-      // Handle API response that returns status in body
-      if (response?.status === 500 || response?.data?.success === false) {
-        return Swal.fire({
-          icon: "error",
-          title: "Delete Failed",
-          text: response?.message || "This designation cannot be deleted",
-        });
-      }
-
-      await Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Designation has been deleted.",
-      });
-
-      fetchDesignations();
-    } catch (error) {
-      console.error("Error deleting designation:", error);
-
-      Swal.fire({
-        icon: "error",
-        title: "Delete Failed",
-        text:
-          error?.response?.data?.message ||
-          error?.message ||
-          "Something went wrong",
-      });
-    }
-  };
-
-  // ---------------- TOGGLE STATUS ----------------
+  // ---------------- SET STATUS ----------------
   const handleToggleStatus = async (id, currentStatus) => {
-    const action = Number(currentStatus) === 1 ? "deactivate" : "activate";
+    const activate = currentStatus !== "ACTIVE";
+    const action = activate ? "activate" : "deactivate";
 
     const result = await Swal.fire({
       title: "Are you sure?",
@@ -171,18 +168,52 @@ export const useDesignationManagement = (industryId) => {
     if (!result.isConfirmed) return;
 
     try {
-      await toggleDesignationStatusAPI(id);
+      await setDesignationStatusAPI(id, activate ? "ACTIVE" : "INACTIVE");
 
       Swal.fire("Success!", `Designation ${action}d successfully.`, "success");
 
       fetchDesignations();
     } catch (error) {
-      console.error("Error toggling status:", error);
-
       Swal.fire({
         icon: "error",
         title: "Action failed",
-        text: error.response?.data?.message || "Something went wrong",
+        text: apiError(error).message,
+      });
+    }
+  };
+
+  // ---------------- DELETE ----------------
+  const handleDelete = async (id, name) => {
+    const result = await Swal.fire({
+      title: "Delete designation?",
+      text: `"${name || "This designation"}" will be permanently deleted. This cannot be undone.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, delete it",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await deleteDesignationAPI(id);
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "Designation deleted successfully.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      setSelectedIds((prev) => prev.filter((sid) => sid !== id));
+      fetchDesignations();
+    } catch (error) {
+      // 409 CONFLICT carries a friendly "still in use" message
+      Swal.fire({
+        icon: "error",
+        title: "Couldn't delete designation",
+        text: apiError(error, "Failed to delete designation").message,
       });
     }
   };
@@ -207,22 +238,15 @@ export const useDesignationManagement = (industryId) => {
     if (!result.isConfirmed) return;
 
     try {
-      await bulkToggleDesignationStatusAPI(selectedIds, activate ? 1 : 0);
+      const res = await bulkDesignationStatusAPI(selectedIds, activate ? "ACTIVE" : "INACTIVE");
       setSelectedIds([]);
       fetchDesignations();
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: `Selected designations have been ${actionText}d.`,
-        timer: 1500,
-        showConfirmButton: false,
-      });
+      showBulkResult({ result: res, noun: "designation", verb: `${actionText}d`, nameOf });
     } catch (error) {
       Swal.fire({
         icon: "error",
-        title: "Error",
-        text: `Failed to ${actionText} selected designations.`,
+        title: "Action failed",
+        text: apiError(error).message,
       });
     }
   };
@@ -235,8 +259,8 @@ export const useDesignationManagement = (industryId) => {
     const count = selectedIds.length;
 
     const result = await Swal.fire({
-      title: "Are you sure?",
-      text: `${count} selected designation${count > 1 ? "s" : ""} will be permanently deleted.`,
+      title: "Delete designations?",
+      text: `${count} selected designation${count > 1 ? "s" : ""} will be permanently deleted. Designations still in use will be skipped.`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, delete",
@@ -248,29 +272,25 @@ export const useDesignationManagement = (industryId) => {
     if (!result.isConfirmed) return;
 
     try {
-      await bulkDeleteDesignationsAPI(selectedIds);
+      const res = await bulkDeleteDesignationsAPI(selectedIds);
       setSelectedIds([]);
       fetchDesignations();
-
-      Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Selected designations have been deleted.",
-        timer: 1500,
-        showConfirmButton: false,
-      });
+      showBulkResult({ result: res, noun: "designation", verb: "deleted", nameOf });
     } catch (error) {
       Swal.fire({
         icon: "error",
-        title: "Error",
-        text: "Failed to delete selected designations.",
+        title: "Delete failed",
+        text: apiError(error).message,
       });
     }
   };
 
   return {
+    // Current page of designations (already filtered/sorted by the server)
     designations,
+    industry,
     loading,
+    loadError,
 
     // Pagination
     page,
@@ -282,11 +302,14 @@ export const useDesignationManagement = (industryId) => {
     filters,
     setFilters,
 
+    // Sorting
+    sortConfig,
+    handleSort,
+
     // Actions
-    handleSearch,
     handleClear,
-    handleDelete,
     handleToggleStatus,
+    handleDelete,
 
     // Bulk selection
     selectedIds,

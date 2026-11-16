@@ -1,30 +1,55 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Swal from "sweetalert2";
 import {
-  getDesignationsAPI,
+  getDesignationsPageAPI,
+  getIndustriesAPI,
+  getSkillCategoriesAPI,
+  setDesignationStatusAPI,
   deleteDesignationAPI,
-  toggleDesignationStatusAPI,
   bulkDeleteDesignationsAPI,
-  bulkToggleDesignationStatusAPI,
-  getDesignationFilterOptionsAPI,
-} from "../../../api/admin/adminDesignationAPI";
+  bulkDesignationStatusAPI,
+} from "../../../api/adminV1/masterdataAPI";
+import { apiError } from "../../../api/javaApi";
+import { useDebounce } from "../../../common/hooks/useDebounce";
+import { showBulkResult } from "../utils/bulkResult";
 
+const PAGE_SIZE = 10;
+
+// Server-side paged listing: search, filters, sort and paging are all sent to
+// GET /admin/masterdata/designations. The UI page is 1-based; the API is 0-based.
 export const useDesignationListManagement = () => {
-  const [designations, setDesignations] = useState([]);
+  const [designationRows, setDesignationRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPageState] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
-  const [filters, setFilters] = useState({
+  const [filters, setFiltersState] = useState({
     search: "",
     status: "",
     industry_ids: [],
+    skill_category_ids: [],
   });
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [selectedIds, setSelectedIds] = useState([]);
+  // Only name / status / createdAt are sortable on the backend.
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+  const [industries, setIndustries] = useState([]);
+  const [skillCategories, setSkillCategories] = useState([]);
+
+  const debouncedSearch = useDebounce(filters.search, 500);
+
+  const setPage = useCallback((p) => {
+    setPageState(p);
+    setSelectedIds([]);
+  }, []);
+
+  // Any filter change goes back to page 1 and clears the selection.
+  const setFilters = useCallback((updater) => {
+    setFiltersState(updater);
+    setPageState(1);
+    setSelectedIds([]);
+  }, []);
 
   const handleSort = (key) => {
     setSortConfig((prev) => {
@@ -32,76 +57,81 @@ export const useDesignationListManagement = () => {
       if (prev.direction === "asc") return { key, direction: "desc" };
       return { key: null, direction: "asc" };
     });
-    setPage(1);
+    setPageState(1);
+    setSelectedIds([]);
   };
 
-  const [industries, setIndustries] = useState([]);
-
-  // Keep filters stable in a ref for the fetch callback
-  const filtersRef = useRef(filters);
+  // Lookups for the industry filter and the skill category column
   useEffect(() => {
-    filtersRef.current = filters;
-  }, [filters]);
-
-  // Fetch the industries list for the filter dropdown
-  useEffect(() => {
-    const fetchFilterOptions = async () => {
-      try {
-        const response = await getDesignationFilterOptionsAPI();
-        const data = response?.data || response || {};
-        setIndustries(data.industries || []);
-      } catch (error) {
-        console.error("Error fetching designation filter options:", error);
-        setIndustries([]);
-      }
-    };
-    fetchFilterOptions();
+    getIndustriesAPI()
+      .then((list) => setIndustries(list || []))
+      .catch(() => setIndustries([]));
+    getSkillCategoriesAPI()
+      .then((list) => setSkillCategories(list || []))
+      .catch(() => setSkillCategories([]));
   }, []);
 
-  // Core fetch function – depends only on page/sort, uses filters from ref
+  // Ignore responses from superseded requests (fast typing / paging).
+  const requestSeq = useRef(0);
+
   const fetchDesignations = useCallback(async () => {
+    const seq = ++requestSeq.current;
     setLoading(true);
     try {
-      const params = {
-        page,
-        limit: 10,
-        search: filtersRef.current.search || undefined,
-        status: filtersRef.current.status || undefined,
-        industry_ids: filtersRef.current.industry_ids || [],
-        sort_by: sortConfig.key || undefined,
-        sort_dir: sortConfig.key ? sortConfig.direction : undefined,
-      };
-      const response = await getDesignationsAPI(params);
-      const responseData = response.data;
-      setDesignations(responseData.data || []);
-      setTotalPages(responseData.last_page || 1);
-      setTotalRecords(responseData.total || 0);
+      const res = await getDesignationsPageAPI({
+        page: page - 1,
+        size: PAGE_SIZE,
+        search: debouncedSearch.trim(),
+        statuses: filters.status ? [filters.status] : undefined,
+        industryIds: filters.industry_ids,
+        skillCategoryIds: filters.skill_category_ids,
+        sort: sortConfig.key ? `${sortConfig.key},${sortConfig.direction}` : undefined,
+      });
+      if (seq !== requestSeq.current) return;
+      const pages = Math.max(1, res?.totalPages || 1);
+      setDesignationRows(res?.content || []);
+      setTotalRecords(res?.totalElements || 0);
+      setTotalPages(pages);
+      // Stay on a real page when the result set shrinks (e.g. after a delete)
+      if (page > pages) setPageState(pages);
     } catch (error) {
-      console.error("Error fetching designations:", error);
+      if (seq !== requestSeq.current) return;
       Swal.fire({
         icon: "error",
         title: "Failed to load designations",
-        text: error.response?.data?.message || "Something went wrong",
+        text: apiError(error, "Something went wrong").message,
       });
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
-  }, [page, sortConfig]);
+  }, [
+    page,
+    debouncedSearch,
+    filters.status,
+    filters.industry_ids,
+    filters.skill_category_ids,
+    sortConfig,
+  ]);
 
-  // Trigger a fresh fetch (used by search, filters, clear, etc.)
-  const triggerFetch = useCallback(() => {
-    setRefreshTrigger((prev) => prev + 1);
-  }, []);
-
-  // Fetch whenever page or refreshTrigger changes
   useEffect(() => {
     fetchDesignations();
-  }, [page, refreshTrigger, fetchDesignations]);
+  }, [fetchDesignations]);
 
-  // Selection is tied to the current page/filters — reset it whenever either changes
+  // Debounced search changes after the user stops typing; page was already reset
+  // by setFilters, so only the selection needs resetting here.
   useEffect(() => {
     setSelectedIds([]);
-  }, [page, refreshTrigger]);
+  }, [debouncedSearch]);
+
+  const designations = useMemo(() => {
+    const categoryName = Object.fromEntries(skillCategories.map((c) => [c.id, c.name]));
+    return designationRows.map((d) => ({
+      ...d,
+      skillCategoryName: categoryName[d.skillCategoryId] || null,
+    }));
+  }, [designationRows, skillCategories]);
+
+  const nameOf = (id) => designationRows.find((d) => d.id === id)?.name || `#${id}`;
 
   const toggleSelectDesignation = (id) => {
     setSelectedIds((prev) =>
@@ -115,64 +145,13 @@ export const useDesignationListManagement = () => {
     );
   };
 
-  // Search/filter handler: reset page to 1 and force a refetch
-  const handleSearch = useCallback(() => {
-    setPage(1);
-    triggerFetch();
-  }, [triggerFetch]);
-
-  // Clear all filters and refetch
   const handleClear = useCallback(() => {
-    setFilters({ search: "", status: "", industry_ids: [] });
-    setPage(1);
-    triggerFetch();
-  }, [triggerFetch]);
-
-  const handleDelete = async (id) => {
-    const result = await Swal.fire({
-      title: "Are you sure?",
-      text: "You won't be able to revert this!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
-      confirmButtonText: "Yes, delete it!",
-    });
-
-    if (!result.isConfirmed) return;
-
-    try {
-      const response = await deleteDesignationAPI(id);
-
-      if (response?.status === 500 || response?.data?.success === false) {
-        Swal.fire({
-          icon: "error",
-          title: "Delete failed",
-          text: response?.message || "This designation cannot be deleted",
-        });
-        return;
-      }
-
-      Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Designation has been deleted.",
-      });
-
-      fetchDesignations();
-    } catch (error) {
-      console.error("Error deleting designation:", error);
-
-      Swal.fire({
-        icon: "error",
-        title: "Delete failed",
-        text: error.response?.data?.message || "Something went wrong",
-      });
-    }
-  };
+    setFilters({ search: "", status: "", industry_ids: [], skill_category_ids: [] });
+  }, [setFilters]);
 
   const handleToggleStatus = async (id, currentStatus) => {
-    const action = Number(currentStatus) === 1 ? "deactivate" : "activate";
+    const activating = currentStatus !== "ACTIVE";
+    const action = activating ? "activate" : "deactivate";
     const result = await Swal.fire({
       title: `Are you sure?`,
       text: `Do you want to ${action} this designation?`,
@@ -184,15 +163,49 @@ export const useDesignationListManagement = () => {
     if (!result.isConfirmed) return;
 
     try {
-      await toggleDesignationStatusAPI(id);
-      Swal.fire("Success!", `Designation ${action}d successfully.`, "success");
+      await setDesignationStatusAPI(id, activating ? "ACTIVE" : "INACTIVE");
       fetchDesignations();
+      Swal.fire("Success!", `Designation ${action}d successfully.`, "success");
     } catch (error) {
-      console.error("Error toggling status:", error);
       Swal.fire({
         icon: "error",
         title: "Action failed",
-        text: error.response?.data?.message || "Something went wrong",
+        text: apiError(error, "Something went wrong").message,
+      });
+    }
+  };
+
+  const handleDelete = async (id) => {
+    const result = await Swal.fire({
+      title: "Delete designation?",
+      text: `"${nameOf(id)}" will be permanently deleted. This cannot be undone.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, delete it",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await deleteDesignationAPI(id);
+      setSelectedIds((prev) => prev.filter((sid) => sid !== id));
+      fetchDesignations();
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "Designation deleted successfully.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+    } catch (error) {
+      // 409 when skills/workers still reference it — show the backend's message
+      Swal.fire({
+        icon: "error",
+        title: "Delete failed",
+        text: apiError(error, "Something went wrong").message,
       });
     }
   };
@@ -215,23 +228,22 @@ export const useDesignationListManagement = () => {
 
     if (!result.isConfirmed) return;
 
+    const names = Object.fromEntries(selectedIds.map((id) => [id, nameOf(id)]));
     try {
-      await bulkToggleDesignationStatusAPI(selectedIds, activate ? 1 : 0);
+      const res = await bulkDesignationStatusAPI(selectedIds, activate ? "ACTIVE" : "INACTIVE");
       setSelectedIds([]);
       fetchDesignations();
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: `Selected designations have been ${actionText}d.`,
-        timer: 1500,
-        showConfirmButton: false,
+      showBulkResult({
+        result: res,
+        noun: "designation",
+        verb: `${actionText}d`,
+        nameOf: (id) => names[id] || `#${id}`,
       });
     } catch (error) {
       Swal.fire({
         icon: "error",
-        title: "Error",
-        text: `Failed to ${actionText} selected designations.`,
+        title: "Action failed",
+        text: apiError(error, "Something went wrong").message,
       });
     }
   };
@@ -244,8 +256,8 @@ export const useDesignationListManagement = () => {
     const count = selectedIds.length;
 
     const result = await Swal.fire({
-      title: "Are you sure?",
-      text: `${count} selected designation${count > 1 ? "s" : ""} will be permanently deleted.`,
+      title: "Delete designations?",
+      text: `${count} selected designation${count > 1 ? "s" : ""} will be permanently deleted. Designations still used by skills or workers will be skipped.`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, delete",
@@ -256,23 +268,22 @@ export const useDesignationListManagement = () => {
 
     if (!result.isConfirmed) return;
 
+    const names = Object.fromEntries(selectedIds.map((id) => [id, nameOf(id)]));
     try {
-      await bulkDeleteDesignationsAPI(selectedIds);
+      const res = await bulkDeleteDesignationsAPI(selectedIds);
       setSelectedIds([]);
       fetchDesignations();
-
-      Swal.fire({
-        icon: "success",
-        title: "Deleted!",
-        text: "Selected designations have been deleted.",
-        timer: 1500,
-        showConfirmButton: false,
+      showBulkResult({
+        result: res,
+        noun: "designation",
+        verb: "deleted",
+        nameOf: (id) => names[id] || `#${id}`,
       });
     } catch (error) {
       Swal.fire({
         icon: "error",
-        title: "Error",
-        text: "Failed to delete selected designations.",
+        title: "Delete failed",
+        text: apiError(error, "Something went wrong").message,
       });
     }
   };
@@ -286,12 +297,12 @@ export const useDesignationListManagement = () => {
     filters,
     setFilters,
     setPage,
-    handleSearch,
     handleClear,
-    handleDelete,
     handleToggleStatus,
+    handleDelete,
     refresh: fetchDesignations,
     industries,
+    skillCategories,
     selectedIds,
     toggleSelectDesignation,
     toggleSelectAll,

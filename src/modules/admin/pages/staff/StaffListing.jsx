@@ -6,6 +6,8 @@ import { useNavigate } from "@/lib/navigation";
 import {
   CheckCircle,
   Edit2,
+  Filter,
+  MapPin,
   Eye,
   MoreVertical,
   Plus,
@@ -23,13 +25,19 @@ import {
 import { useStaffListing } from "../../adminhooks/useStaffListing";
 import StaffViewModal from "../../components/staff/ViewStaffModal";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
-import { useSortableData } from "../../../../common/hooks/useSortableData";
 import SortableHeader from "../../../../common/components/SortableHeader";
 
+import ActionMenuPortal from "../../../../common/components/ActionMenuPortal";
+import { MultiFilter } from "../../components/worker/ListingFilters";
+import DateRangeDropdown from "../../../../common/components/DateRangeDropdown.jsx";
+import { useDateRangeFilter } from "../../../../common/hooks/useDateRangeFilter";
+
+// INCOMPLETE = invite pending: the staff member has never logged in.
 const statusTabs = [
-  { key: "", label: "All" },
-  { key: "ACTIVE", label: "Active" },
-  { key: "DISABLED", label: "Disabled" },
+  { key: "", label: "All Staff" },
+  { key: "ACTIVE", label: "Active Staff" },
+  { key: "DISABLED", label: "Inactive Staff" },
+  { key: "INCOMPLETE", label: "Incomplete Staff" },
 ];
 
 const formatDateTime = (value) =>
@@ -51,6 +59,8 @@ const StaffListing = () => {
     staffs,
     pageCount,
     roles,
+    states,
+    cities,
     loading,
     page,
     totalPages,
@@ -58,16 +68,34 @@ const StaffListing = () => {
     setPage,
     filters,
     setFilters,
+    sortConfig,
+    handleSort,
     handleClear,
     handleDelete,
     handleToggleStatus,
     canActOn,
   } = useStaffListing();
 
-  const { sortedItems: sortedStaffs, sortConfig, requestSort } = useSortableData(staffs);
 
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [openActionMenuId, setOpenActionMenuId] = useState(null);
+  const [filtersVisible, setFiltersVisible] = useState(false);
+  const [showDateDropdown, setShowDateDropdown] = useState(false);
+  const { dateRange, applyPreset, setCustomRange, presets, formatDateForDisplay } = useDateRangeFilter();
+
+  const setFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value }));
+
+  // Registration (created) date range -> createdFrom / createdTo (YYYY-MM-DD).
+  const handleDateRangeChange = (range) => {
+    if (range.preset === "custom") setCustomRange(range.from, range.to);
+    else applyPreset(range.preset);
+    setFilters((prev) => ({ ...prev, createdFrom: range.from || "", createdTo: range.to || "" }));
+  };
+
+  const handleClearAll = () => {
+    handleClear();
+    applyPreset("all");
+  };
 
   // Close the row action menu on outside click
   useEffect(() => {
@@ -102,20 +130,31 @@ const StaffListing = () => {
     );
   }
 
-  const isFiltering = Boolean(filters.search || filters.status || filters.roleId);
+  const isFiltering = Boolean(
+    filters.search ||
+      filters.tab ||
+      filters.roleIds.length ||
+      filters.stateIds.length ||
+      filters.cityIds.length ||
+      filters.createdFrom ||
+      filters.createdTo,
+  );
 
   return (
     <motion.div className="flex-1 bg-gray-50" initial="hidden" animate="visible" variants={containerVariants}>
       {/* HEADER */}
-      <motion.div className="bg-white p-4 mb-4 rounded-2xl border border-gray-200 shadow-sm" variants={itemVariants}>
+      <motion.div
+        className={`bg-white p-4 border border-gray-200 shadow-sm ${filtersVisible ? "rounded-t-2xl border-b-0" : "mb-4 rounded-2xl"}`}
+        variants={itemVariants}
+      >
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
           <div className="flex flex-wrap items-center gap-1 border-b border-gray-200 pb-1">
             {statusTabs.map((tab) => (
               <button
-                key={tab.key}
-                onClick={() => setFilters({ ...filters, status: tab.key })}
+                key={tab.key || "all"}
+                onClick={() => setFilter("tab", tab.key)}
                 className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
-                  filters.status === tab.key
+                  filters.tab === tab.key
                     ? "text-blue-700 border-b-2 border-blue-700 bg-blue-50/50"
                     : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
                 }`}
@@ -130,36 +169,20 @@ const StaffListing = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
               <input
                 type="text"
-                placeholder="Search name, email, username..."
+                placeholder="Search by name, email, phone..."
                 value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                onChange={(e) => setFilter("search", e.target.value)}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
-            {roles.length > 0 && (
-              <select
-                value={filters.roleId}
-                onChange={(e) => setFilters({ ...filters, roleId: e.target.value })}
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">All roles</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {isFiltering && (
-              <button
-                onClick={handleClear}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Clear
-              </button>
-            )}
+            <button
+              onClick={() => setFiltersVisible(!filtersVisible)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium transition ${filtersVisible ? "bg-blue-100 text-blue-700 border border-blue-200" : "bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200"}`}
+            >
+              <Filter className="w-4 h-4" />
+              <span className="hidden sm:inline">Filters</span>
+            </button>
 
             {canCreate && (
               <button
@@ -173,12 +196,71 @@ const StaffListing = () => {
             )}
           </div>
         </div>
-        {isFiltering && totalPages > 1 && (
-          <p className="mt-3 text-xs text-gray-500">
-            Search and filters apply to the {pageCount} staff on this page.
-          </p>
-        )}
       </motion.div>
+
+      {/* FILTERS */}
+      {filtersVisible && (
+        <motion.div
+          className="bg-white p-4 mb-4 rounded-b-2xl border border-gray-200 shadow-sm"
+          variants={itemVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-gray-700">FILTER BY :</div>
+              <button
+                onClick={handleClearAll}
+                className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Clear All
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-3 items-start">
+              <div className="relative w-56">
+                <DateRangeDropdown
+                  showDateDropdown={showDateDropdown}
+                  setShowDateDropdown={setShowDateDropdown}
+                  dateRange={dateRange}
+                  onDateRangeChange={handleDateRangeChange}
+                  presets={presets}
+                  applyPreset={applyPreset}
+                  formatDateForDisplay={formatDateForDisplay}
+                />
+              </div>
+              {roles.length > 0 && (
+                <MultiFilter
+                  icon={User}
+                  placeholder="Search role"
+                  options={roles}
+                  selected={filters.roleIds}
+                  onChange={(v) => setFilter("roleIds", v)}
+                />
+              )}
+              <MultiFilter
+                icon={MapPin}
+                placeholder="Search state"
+                options={states}
+                selected={filters.stateIds}
+                onChange={(v) => setFilter("stateIds", v)}
+              />
+              <MultiFilter
+                icon={MapPin}
+                placeholder={filters.stateIds.length ? "Search city" : "Select state first"}
+                options={cities}
+                selected={filters.cityIds}
+                onChange={(v) => setFilter("cityIds", v)}
+              />
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {isFiltering && totalPages > 1 && (
+        <p className="-mt-2 mb-3 px-1 text-xs text-gray-500">
+          Filters apply to the {pageCount} staff on this page until the backend supports staff filters.
+        </p>
+      )}
 
       {/* TABLE */}
       <motion.div
@@ -194,16 +276,16 @@ const StaffListing = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <SortableHeader label="Staff" sortKey="fullName" sortConfig={sortConfig} onSort={requestSort} />
-                <SortableHeader label="Email" sortKey="email" sortConfig={sortConfig} onSort={requestSort} />
-                <SortableHeader label="Phone" sortKey="phone" sortConfig={sortConfig} onSort={requestSort} />
+                <SortableHeader label="Staff" sortKey="fullName" sortConfig={sortConfig} onSort={handleSort} />
+                <SortableHeader label="Email" sortKey="email" sortConfig={sortConfig} onSort={handleSort} />
+                <SortableHeader label="Phone" sortKey="phone" sortConfig={sortConfig} onSort={handleSort} />
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Roles</th>
-                <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={requestSort} />
+                <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={handleSort} />
                 <SortableHeader
                   label="Last Login"
                   sortKey="lastLoginAt"
                   sortConfig={sortConfig}
-                  onSort={requestSort}
+                  onSort={handleSort}
                 />
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Actions</th>
               </tr>
@@ -218,7 +300,7 @@ const StaffListing = () => {
                     </div>
                   </td>
                 </tr>
-              ) : sortedStaffs.length === 0 ? (
+              ) : staffs.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="text-center py-10 text-gray-500">
                     <User className="w-12 h-12 mx-auto text-gray-300 mb-3" />
@@ -233,7 +315,7 @@ const StaffListing = () => {
                   </td>
                 </tr>
               ) : (
-                sortedStaffs.map((staffMember, index) => {
+                staffs.map((staffMember, index) => {
                   const actionable = canActOn(staffMember);
                   const active = staffMember.status === "ACTIVE";
                   return (
@@ -309,7 +391,7 @@ const StaffListing = () => {
                           </button>
 
                           {openActionMenuId === staffMember.id && (
-                            <div className="absolute right-0 z-20 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
+                            <ActionMenuPortal className="w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-left">
                               <button
                                 onClick={() => {
                                   setOpenActionMenuId(null);
@@ -363,7 +445,7 @@ const StaffListing = () => {
                                     : "You can't disable or delete your own account."}
                                 </p>
                               )}
-                            </div>
+                            </ActionMenuPortal>
                           )}
                         </div>
                       </td>
