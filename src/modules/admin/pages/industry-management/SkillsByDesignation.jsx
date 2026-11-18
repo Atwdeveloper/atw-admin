@@ -29,6 +29,7 @@ import Breadcrumb from "../../../../common/components/Breadcrumb";
 import { useSkillManagement } from "../../adminhooks/useSkillManagement";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import SortableHeader from "../../../../common/components/SortableHeader";
+import MasterdataThumb from "../../../../common/components/MasterdataThumb";
 import { getSkillAPI } from "../../../../api/adminV1/masterdataAPI";
 
 
@@ -593,19 +594,7 @@ const SkillsByDesignation = () => {
                       {skill.name}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200">
-                        {skill.imageUrl ? (
-                          <img
-                            src={skill.imageUrl}
-                            alt={skill.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                            <ImageIcon className="w-5 h-5 text-gray-400" />
-                          </div>
-                        )}
-                      </div>
+                      <MasterdataThumb kind="skills" id={skill.id} fetcher={getSkillAPI} alt={skill.name} />
                     </td>
                     <td className="px-6 py-4">
                       <span

@@ -112,14 +112,52 @@ export const getWorkerBankDetailAPI = (id) => javaApi.get(`${BASE}/${id}/bank-de
 // Full replace; any change resets verified/verifiedAt.
 export const updateWorkerBankDetailAPI = (id, body) =>
   javaApi.put(`${BASE}/${id}/bank-detail`, body).then(unwrap);
-// POST /{id}/bank-detail/verify exists on the backend but is on hold here —
-// not wired until its request/response shape is confirmed.
+// Advisory check, no worker involved (use during Add Worker): nothing is saved
+// and nothing is marked verified.
+// UNCONFIRMED body/response names — assumed to mirror the bank-detail DTO.
+export const checkBankDetailAPI = ({ accountHolderName, accountNumber, ifscCode }) =>
+  javaApi
+    .post(`${BASE}/bank-detail/check`, { accountHolderName, accountNumber, ifscCode })
+    .then(unwrap);
+
+// Verifies the bank detail SAVED for this worker and, on a match, sets
+// verified/verifiedAt — the only path that marks a record verified.
+export const verifyWorkerBankDetailAPI = (id) =>
+  javaApi.post(`${BASE}/${id}/bank-detail/verify`).then(unwrap);
+
+// Reads a check/verify response as { ok, message, registeredName }.
+// The check endpoint returns { exists, nameMatched }: the account exists at
+// the bank, and the holder name matches. Both must be true. The verify
+// endpoint's shape isn't confirmed — if it has no `exists`, fall back to a
+// `verified` flag (the bank-detail row it updates).
+export const parseBankCheckResult = (data) => {
+  const registeredName = data?.registeredName || data?.nameAtBank || null;
+  if (data && "exists" in data) {
+    if (!data.exists) {
+      return { ok: false, message: "No account with this account number and IFSC was found at the bank.", registeredName };
+    }
+    if (!data.nameMatched) {
+      return {
+        ok: false,
+        message: registeredName
+          ? `The account exists, but it's registered to "${registeredName}", not the worker's name.`
+          : "The account exists, but the account holder name doesn't match the worker's name.",
+        registeredName,
+      };
+    }
+    return { ok: true, message: null, registeredName };
+  }
+  return { ok: Boolean(data?.verified), message: data?.message || null, registeredName };
+};
 
 // ---- Notes (append-only; read needs workers.view_comments, add needs workers.edit)
 // -> paged { content: [{ id, note, createdBy, createdAt }] }, newest first
 export const getWorkerNotesAPI = (id, params = {}) =>
   javaApi.get(`${BASE}/${id}/notes`, { params }).then(unwrap);
 export const addWorkerNoteAPI = (id, note) => javaApi.post(`${BASE}/${id}/notes`, { note }).then(unwrap);
+// Hard delete (the note is gone). Needs workers.delete_comments.
+export const deleteWorkerNoteAPI = (id, noteId) =>
+  javaApi.delete(`${BASE}/${id}/notes/${noteId}`).then(unwrap);
 
 // ---- Deletion (soft; refused while ACTIVE) ----------------------------------
 export const deleteWorkerAPI = (id) => javaApi.delete(`${BASE}/${id}`).then(unwrap);

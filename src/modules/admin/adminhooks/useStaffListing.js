@@ -18,42 +18,34 @@ export const defaultStaffFilters = {
   search: "",
   tab: "",
   roleIds: [],
+  superAdmin: "", // "" (all) | "true" | "false"
   stateIds: [],
   cityIds: [],
   createdFrom: "", // YYYY-MM-DD
   createdTo: "",
 };
 
-// Filters in the shape the list endpoint will accept once the backend adds them.
+// Server-side filters on GET /admin/staff: search (name/email/username/phone),
+// status (multi), roleId (multi), superAdmin. State/city/date aren't supported
+// by the backend yet — they're sent anyway (ignored until it adds them).
 const toQuery = (f) => ({
   search: f.search.trim() || undefined,
-  statuses: f.tab === "ACTIVE" || f.tab === "DISABLED" ? [f.tab] : undefined,
-  roleIds: f.roleIds,
-  stateIds: f.stateIds,
-  cityIds: f.cityIds,
+  status: f.tab === "ACTIVE" || f.tab === "DISABLED" ? [f.tab] : undefined,
+  roleId: f.roleIds,
+  superAdmin: f.superAdmin || undefined,
+  stateId: f.stateIds,
+  cityId: f.cityIds,
   createdFrom: f.createdFrom || undefined,
   createdTo: f.createdTo || undefined,
 });
 
 const dayOf = (iso) => (iso ? String(iso).slice(0, 10) : "");
 
-// Until the backend filters, apply what we can to the loaded page. State/city
-// can't be checked here — the list rows carry no address.
+// What the backend doesn't filter yet, applied to the loaded page: the
+// Incomplete tab (never logged in) and the created-date range. State/city
+// can't be checked here — the rows carry no address.
 const matchesOnPage = (s, f) => {
-  const q = f.search.trim().toLowerCase();
-  if (
-    q &&
-    !(
-      s.fullName?.toLowerCase().includes(q) ||
-      s.email?.toLowerCase().includes(q) ||
-      s.username?.toLowerCase().includes(q) ||
-      s.phone?.includes(q)
-    )
-  )
-    return false;
-  if ((f.tab === "ACTIVE" || f.tab === "DISABLED") && s.status !== f.tab) return false;
   if (f.tab === "INCOMPLETE" && s.lastLoginAt) return false;
-  if (f.roleIds.length && !s.roles?.some((r) => f.roleIds.includes(r.id))) return false;
   if (f.createdFrom && dayOf(s.createdAt) < f.createdFrom) return false;
   if (f.createdTo && dayOf(s.createdAt) > f.createdTo) return false;
   return true;

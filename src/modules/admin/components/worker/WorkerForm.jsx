@@ -221,15 +221,6 @@ const handleFetch = (kind, value) => {
   });
 };
 
-// Bank verification is on hold: the backend's verify endpoint needs a saved
-// worker id, and its request/response shape isn't confirmed yet.
-const handleVerifyBank = () =>
-  Swal.fire({
-    icon: "info",
-    title: "Bank verification not available yet",
-    text: "Account verification will be enabled once the backend endpoint is finalised.",
-  });
-
 const selectClass = (error, disabled) =>
   `w-full px-3 py-2 rounded-lg border bg-white ${error ? "border-red-500" : "border-gray-300"} ${
     disabled ? "bg-gray-100 cursor-not-allowed" : ""
@@ -266,6 +257,10 @@ const WorkerForm = ({ mode = "create", workerId }) => {
     toggleSkill,
     selectState,
     applyAadhaarVerification,
+    verifyBank,
+    verifyingBank,
+    bankCheck,
+    bankChanged,
     submit,
     reset,
   } = useWorkerForm({ mode, workerId, canViewKyc, canSubmitKyc });
@@ -812,14 +807,22 @@ const WorkerForm = ({ mode = "create", workerId }) => {
                       {...text("ifscCode", { onChange: (e) => update({ ifscCode: e.target.value.toUpperCase() }) })}
                     />
                   </div>
-                  <SideButton
-                    onClick={handleVerifyBank}
-                    disabled={submitting || (isEdit && onFile.bankVerified)}
-                    active={isEdit && onFile.bankVerified}
-                  >
-                    {isEdit && onFile.bankVerified ? "Verified" : "Verify Account"}
-                  </SideButton>
+                  {(() => {
+                    // Saved + verified (Edit, unchanged) or a passing check on the typed details.
+                    const verifiedOnFile = isEdit && onFile.bankVerified && !bankChanged;
+                    const done = verifiedOnFile || bankCheck === "ok";
+                    return (
+                      <SideButton onClick={verifyBank} disabled={submitting || verifyingBank || done} active={done}>
+                        {verifyingBank ? "..." : verifiedOnFile ? "Verified" : bankCheck === "ok" ? "Matched" : "Verify Account"}
+                      </SideButton>
+                    );
+                  })()}
                 </div>
+                {bankCheck === "ok" && !isEdit && (
+                  <p className="text-xs text-green-700 mt-1">
+                    Details match the bank's records (advisory check — nothing is saved yet).
+                  </p>
+                )}
                 <FieldError message={errors.ifscCode} />
               </div>
               <div>

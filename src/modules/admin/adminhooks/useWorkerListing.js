@@ -45,6 +45,9 @@ export const defaultWorkerFilters = {
   industryIds: [],
   designationIds: [],
   kycStatuses: [],
+  // Matches a worker whose CURRENT or PERMANENT address is in these.
+  stateIds: [],
+  cityIds: [],
   registeredFrom: "", // YYYY-MM-DD
   registeredTo: "",
 };
@@ -58,6 +61,8 @@ const toQuery = (f) => ({
   industryId: f.industryIds.length ? f.industryIds : undefined,
   designationId: f.designationIds.length ? f.designationIds : undefined,
   kycStatus: f.kycStatuses.length ? f.kycStatuses : undefined,
+  stateId: f.stateIds.length ? f.stateIds : undefined,
+  cityId: f.cityIds.length ? f.cityIds : undefined,
   registeredFrom: f.registeredFrom || undefined,
   registeredTo: f.registeredTo || undefined,
 });

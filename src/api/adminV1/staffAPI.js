@@ -4,10 +4,10 @@ import javaApi, { unwrap } from "../javaApi";
 //                  roles: [{ id, name }], lastLoginAt, createdAt }
 
 // page is 0-based. -> { content, page, size, totalElements, totalPages, first, last }
-// filters: { search, statuses[], roleIds[], stateIds[], cityIds[], createdFrom, createdTo }
-// NOTE: the backend doesn't accept any filters yet (only page/size/sort) and
-// ignores them — they're sent so the listing filters server-side as soon as
-// it adds them under these names. Until then the page filters what it loaded.
+// filters: { search (name/email/username/phone), status[] (ACTIVE|DISABLED),
+//            roleId[], superAdmin (true|false) } — filtered by the backend.
+// stateId[]/cityId[]/createdFrom/createdTo are sent too but not supported yet
+// (ignored by the backend until it adds them).
 export const getStaffListAPI = ({ page = 0, size = 10, sort, ...filters } = {}) => {
   const params = Object.fromEntries(
     Object.entries({ page, size, sort, ...filters }).filter(

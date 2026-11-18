@@ -37,6 +37,7 @@ const RoleListing = () => {
     page,
     totalPages,
     setPage,
+    totalRecords,
     filters,
     setFilters,
 
@@ -152,7 +153,17 @@ const RoleListing = () => {
               className="px-3 py-1.5 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-auto"
             />
 
-            {filters.search && (
+            <select
+              value={filters.roleType || ""}
+              onChange={(e) => setFilters({ ...filters, roleType: e.target.value })}
+              className="px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">All Types</option>
+              <option value="system">System Roles</option>
+              <option value="custom">Custom Roles</option>
+            </select>
+
+            {(filters.search || filters.roleType) && (
               <button
                 onClick={handleClear}
                 className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -182,7 +193,7 @@ const RoleListing = () => {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-medium text-gray-800">Roles List</h2>
           <h2 className="flex items-center justify-between gap-1 text-lg font-medium text-gray-800">
-            <p>Total Roles :</p> {roles?.length || 0}
+            <p>Total Roles :</p> {totalRecords}
           </h2>
         </div>
 
@@ -202,13 +213,9 @@ const RoleListing = () => {
                   sortConfig={sortConfig}
                   onSort={handleSort}
                 />
-                <SortableHeader
-                  label="Permissions"
-                  sortKey="permissions"
-                  accessor={(role) => getPermissionCount(role.permissions)}
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+                  Permissions
+                </th>
                 <SortableHeader
                   label="Type"
                   sortKey="systemRole"

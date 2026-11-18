@@ -2,21 +2,44 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MessageCircle, Loader, Send } from "lucide-react";
+import { X, MessageCircle, Loader, Send, Trash2 } from "lucide-react";
 import Swal from "sweetalert2";
-import { getWorkerNotesAPI, addWorkerNoteAPI } from "../../../../api/adminV1/workerAPI";
+import { getWorkerNotesAPI, addWorkerNoteAPI, deleteWorkerNoteAPI } from "../../../../api/adminV1/workerAPI";
 import { apiError } from "../../../../api/javaApi";
 import { formatDate } from "../../utils/workerUtils";
 
 const NOTE_MAX = 2000;
 
-// Admin notes about a worker. Append-only: there is no edit or delete.
-// Reading needs workers.view_comments; adding needs workers.edit (canAdd).
-const WorkerCommentsModal = ({ isOpen, onClose, workerId, workerName, canAdd }) => {
+// Admin notes about a worker. No edit. Reading needs workers.view_comments,
+// adding needs workers.edit (canAdd), deleting needs workers.delete_comments
+// (canDelete) — a permanent delete.
+const WorkerCommentsModal = ({ isOpen, onClose, workerId, workerName, canAdd, canDelete }) => {
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const handleDelete = async (noteId) => {
+    const result = await Swal.fire({
+      title: "Delete this note?",
+      text: "The note will be permanently deleted.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, delete it",
+      confirmButtonColor: "#d33",
+    });
+    if (!result.isConfirmed) return;
+    setDeletingId(noteId);
+    try {
+      await deleteWorkerNoteAPI(workerId, noteId);
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    } catch (error) {
+      Swal.fire({ icon: "error", title: "Could not delete note", text: apiError(error).message });
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const fetchNotes = useCallback(async () => {
     if (!workerId) return;
@@ -85,7 +108,7 @@ const WorkerCommentsModal = ({ isOpen, onClose, workerId, workerName, canAdd }) 
                   value={draft}
                   onChange={(e) => setDraft(e.target.value.slice(0, NOTE_MAX))}
                   rows={3}
-                  placeholder="Add a note about this worker. Notes can't be edited or deleted later."
+                  placeholder="Add a note about this worker. Notes can't be edited later."
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <div className="flex items-center justify-between mt-2">
@@ -118,11 +141,27 @@ const WorkerCommentsModal = ({ isOpen, onClose, workerId, workerName, canAdd }) 
               ) : (
                 <div className="space-y-4">
                   {notes.map((item) => (
-                    <div key={item.id} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                      <p className="text-gray-800 whitespace-pre-wrap break-words">{item.note}</p>
-                      <p className="text-xs text-gray-400 mt-2">
-                        {item.createdBy} · {formatDate(item.createdAt, true)}
-                      </p>
+                    <div key={item.id} className="bg-gray-50 rounded-xl p-4 border border-gray-200 flex gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-gray-800 whitespace-pre-wrap break-words">{item.note}</p>
+                        <p className="text-xs text-gray-400 mt-2">
+                          {item.createdBy} · {formatDate(item.createdAt, true)}
+                        </p>
+                      </div>
+                      {canDelete && (
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          disabled={deletingId === item.id}
+                          className="self-start text-gray-400 hover:text-red-600 transition disabled:opacity-50"
+                          title="Delete note"
+                        >
+                          {deletingId === item.id ? (
+                            <Loader className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

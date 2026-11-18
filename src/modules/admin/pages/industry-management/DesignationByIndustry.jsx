@@ -30,6 +30,7 @@ import { getDesignationAPI } from "../../../../api/adminV1/masterdataAPI";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import SortableHeader from "../../../../common/components/SortableHeader";
+import MasterdataThumb from "../../../../common/components/MasterdataThumb";
 import { useLocation } from "@/lib/navigation";
 // View Modal for Designation (updated)
 import { Wrench } from "lucide-react";
@@ -648,19 +649,7 @@ const DesignationByIndustry = () => {
                       {designation.name}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200">
-                        {designation.imageUrl ? (
-                          <img
-                            src={designation.imageUrl}
-                            alt={designation.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                            <ImageIcon className="w-5 h-5 text-gray-400" />
-                          </div>
-                        )}
-                      </div>
+                      <MasterdataThumb kind="designations" id={designation.id} fetcher={getDesignationAPI} alt={designation.name} />
                     </td>
                     <td className="px-6 py-4">
                       <span

@@ -28,6 +28,12 @@ export const validateRate = (value) => {
   return "";
 };
 
+// Today as YYYY-MM-DD in the browser's local time (toISOString would use UTC).
+export const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 const AddMinimumWage = () => {
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
@@ -86,6 +92,9 @@ const AddMinimumWage = () => {
     if (rateError) newErrors.minDailyRate = rateError;
     if (!formData.effectiveFrom) {
       newErrors.effectiveFrom = "Effective date is required";
+    } else if (formData.effectiveFrom < todayISO()) {
+      // A typed-in date can bypass the picker's min, so check here too.
+      newErrors.effectiveFrom = "Effective date can't be in the past";
     }
 
     setErrors(newErrors);
@@ -279,6 +288,7 @@ const AddMinimumWage = () => {
               id="effectiveFrom"
               name="effectiveFrom"
               value={formData.effectiveFrom}
+              min={todayISO()}
               onChange={handleChange}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                 errors.effectiveFrom ? "border-red-500" : "border-gray-300"

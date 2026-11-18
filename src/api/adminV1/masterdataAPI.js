@@ -1,4 +1,5 @@
 import javaApi, { unwrap } from "../javaApi";
+import { invalidateMasterdataThumb } from "../../common/components/MasterdataThumb";
 
 // Java masterdata endpoints (/admin/masterdata/**). Conventions shared by every
 // resource here:
@@ -56,10 +57,15 @@ const uploadImage = (path) => (id, file) => {
   body.append("file", file);
   return javaApi
     .put(`${BASE}/${path}/${id}/image`, body, { headers: { "Content-Type": "multipart/form-data" } })
-    .then(unwrap);
+    .then(unwrap)
+    .finally(() => invalidateMasterdataThumb(path, id));
 };
 
-const removeImage = (path) => (id) => javaApi.delete(`${BASE}/${path}/${id}/image`).then(unwrap);
+const removeImage = (path) => (id) =>
+  javaApi
+    .delete(`${BASE}/${path}/${id}/image`)
+    .then(unwrap)
+    .finally(() => invalidateMasterdataThumb(path, id));
 
 export const ICON_TYPES = ["image/png", "image/jpeg", "image/webp"];
 export const ICON_MAX_BYTES = 2 * 1024 * 1024;

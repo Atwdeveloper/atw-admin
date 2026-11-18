@@ -20,6 +20,7 @@ import {
   XCircle,
   ScanFace,
   ShieldCheck,
+  MapPin,
 } from "lucide-react";
 import { useNavigate } from "@/lib/navigation";
 import { useState, useEffect, useRef } from "react";
@@ -41,6 +42,7 @@ import {
   getIndustriesAPI,
   getDesignationsAPI,
 } from "../../../../api/adminV1/masterdataAPI";
+import { getStatesAPI, getCitiesAPI } from "../../../../api/adminV1/geographyAPI";
 import { WORKER_STATUSES, KYC_STATUSES } from "../../../../api/adminV1/workerAPI";
 import { STATUS_META, KYC_META, statusLabel, kycLabel, formatDate, asList } from "../../utils/workerUtils";
 
@@ -102,16 +104,46 @@ const WorkerListing = () => {
   const [departments, setDepartments] = useState([]);
   const [industries, setIndustries] = useState([]);
   const [designations, setDesignations] = useState([]);
+  const [states, setStates] = useState([]);
+  const [cities, setCities] = useState([]);
 
   useEffect(() => {
-    Promise.allSettled([getDepartmentsAPI(), getIndustriesAPI(), getDesignationsAPI()]).then(
-      ([dep, ind, des]) => {
+    Promise.allSettled([getDepartmentsAPI(), getIndustriesAPI(), getDesignationsAPI(), getStatesAPI()]).then(
+      ([dep, ind, des, st]) => {
         setDepartments(dep.status === "fulfilled" ? asList(dep.value) : []);
         setIndustries(ind.status === "fulfilled" ? asList(ind.value) : []);
         setDesignations(des.status === "fulfilled" ? asList(des.value) : []);
+        setStates(st.status === "fulfilled" ? asList(st.value) : []);
       },
     );
   }, []);
+
+  // City options = cities of the selected states; picked cities outside them are dropped.
+  const stateKey = filters.stateIds.join(",");
+  useEffect(() => {
+    let cancelled = false;
+    const ids = stateKey ? stateKey.split(",") : [];
+    if (ids.length === 0) {
+      setCities([]);
+      setFilters((prev) => (prev.cityIds.length ? { ...prev, cityIds: [] } : prev));
+      return;
+    }
+    Promise.all(ids.map((id) => getCitiesAPI(id).catch(() => []))).then((lists) => {
+      if (cancelled) return;
+      const all = lists.flatMap(asList);
+      const allowed = new Set(all.map((c) => c.id));
+      setCities(all);
+      setFilters((prev) =>
+        prev.cityIds.every((id) => allowed.has(id))
+          ? prev
+          : { ...prev, cityIds: prev.cityIds.filter((id) => allowed.has(id)) },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateKey]);
 
   useEffect(() => {
     const onDown = (e) => {
@@ -407,6 +439,20 @@ const WorkerListing = () => {
                 onChange={(v) => setFilter("kycStatuses", v)}
                 width="w-44"
               />
+              <MultiFilter
+                icon={MapPin}
+                placeholder="Search state"
+                options={states}
+                selected={filters.stateIds}
+                onChange={(v) => setFilter("stateIds", v)}
+              />
+              <MultiFilter
+                icon={MapPin}
+                placeholder={filters.stateIds.length ? "Search city" : "Select state first"}
+                options={cities}
+                selected={filters.cityIds}
+                onChange={(v) => setFilter("cityIds", v)}
+              />
             </div>
           </div>
         </motion.div>
@@ -429,6 +475,7 @@ const WorkerListing = () => {
                 <SortableHeader label="Worker Name & Code" sortKey="firstName" sortConfig={sortConfig} onSort={handleSort} />
                 <SortableHeader label="Mobile" sortKey="mobileNumber" sortConfig={sortConfig} onSort={handleSort} />
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Designation</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Location</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">KYC</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Face</th>
                 <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={handleSort} />
@@ -438,7 +485,7 @@ const WorkerListing = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-gray-500">
+                  <td colSpan={9} className="text-center py-8 text-gray-500">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
@@ -446,7 +493,7 @@ const WorkerListing = () => {
                 </tr>
               ) : workers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-10 text-gray-500">
+                  <td colSpan={9} className="text-center py-10 text-gray-500">
                     <div className="flex flex-col items-center">
                       <User className="w-12 h-12 mx-auto text-gray-300 mb-3" />
                       <p className="text-lg font-medium text-gray-600">No workers found.</p>
@@ -480,6 +527,11 @@ const WorkerListing = () => {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">{worker.mobileNumber}</td>
                     <td className="px-6 py-4 text-sm text-gray-700">{worker.primaryDesignationName || "N/A"}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700">
+                      {[worker.currentCity, worker.currentState].filter(Boolean).join(", ") ||
+                        [worker.permanentCity, worker.permanentState].filter(Boolean).join(", ") ||
+                        "N/A"}
+                    </td>
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${KYC_META[worker.kycStatus]?.className || "bg-gray-100 text-gray-600"}`}
@@ -670,6 +722,7 @@ const WorkerListing = () => {
           workerId={notesWorker?.id}
           workerName={notesWorker ? `${notesWorker.firstName} ${notesWorker.lastName}` : ""}
           canAdd={canEdit}
+          canDelete={hasPermission("workers", "delete_comments")}
         />
       )}
       {faceWorker && (

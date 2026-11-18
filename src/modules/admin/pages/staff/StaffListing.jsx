@@ -134,11 +134,14 @@ const StaffListing = () => {
     filters.search ||
       filters.tab ||
       filters.roleIds.length ||
+      filters.superAdmin ||
       filters.stateIds.length ||
       filters.cityIds.length ||
       filters.createdFrom ||
       filters.createdTo,
   );
+  // Only these are still applied to the loaded page (the backend filters the rest).
+  const isPageFiltering = Boolean(filters.tab === "INCOMPLETE" || filters.createdFrom || filters.createdTo);
 
   return (
     <motion.div className="flex-1 bg-gray-50" initial="hidden" animate="visible" variants={containerVariants}>
@@ -237,6 +240,15 @@ const StaffListing = () => {
                   onChange={(v) => setFilter("roleIds", v)}
                 />
               )}
+              <select
+                value={filters.superAdmin}
+                onChange={(e) => setFilter("superAdmin", e.target.value)}
+                className="w-44 px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">All Accounts</option>
+                <option value="true">Super Admins</option>
+                <option value="false">Non Super Admins</option>
+              </select>
               <MultiFilter
                 icon={MapPin}
                 placeholder="Search state"
@@ -256,9 +268,10 @@ const StaffListing = () => {
         </motion.div>
       )}
 
-      {isFiltering && totalPages > 1 && (
+      {isPageFiltering && totalPages > 1 && (
         <p className="-mt-2 mb-3 px-1 text-xs text-gray-500">
-          Filters apply to the {pageCount} staff on this page until the backend supports staff filters.
+          The Incomplete tab and date filter apply to the {pageCount} staff on this page — the backend
+          doesn't filter by them yet.
         </p>
       )}
 

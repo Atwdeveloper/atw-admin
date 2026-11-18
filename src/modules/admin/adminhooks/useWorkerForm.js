@@ -12,6 +12,9 @@ import {
   updateWorkerAddressAPI,
   getWorkerBankDetailAPI,
   updateWorkerBankDetailAPI,
+  checkBankDetailAPI,
+  verifyWorkerBankDetailAPI,
+  parseBankCheckResult,
   getWorkerKycAPI,
   submitWorkerAadhaarAPI,
   submitWorkerPanAPI,
@@ -585,6 +588,80 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
     }
   };
 
+  const [verifyingBank, setVerifyingBank] = useState(false);
+  // Result of the last advisory check, so the button can show it.
+  const [bankCheck, setBankCheck] = useState(null);
+  useEffect(() => {
+    setBankCheck(null);
+  }, [form.accountNumber, form.ifscCode, accountHolderName]);
+
+  const showBankResult = (result, { saved }) => {
+    if (result.ok) {
+      Swal.fire({
+        icon: "success",
+        title: saved ? "Bank account verified" : "Bank details match",
+        text: saved
+          ? "The saved bank account is now marked verified."
+          : isEdit
+            ? "The details match the bank's records. Update the worker to save them, then verify to mark them verified."
+            : "The details match the bank's records. They'll be saved with the worker.",
+      });
+    } else {
+      Swal.fire({
+        icon: "error",
+        title: "Verification failed",
+        text:
+          result.message ||
+          (result.registeredName
+            ? `The bank has this account under "${result.registeredName}", which doesn't match.`
+            : "The bank could not match these details."),
+      });
+    }
+  };
+
+  // Edit with the saved details unchanged: verify the saved record (marks it
+  // verified). Otherwise (Add, or unsaved changes): an advisory check only.
+  const verifyBank = async () => {
+    const e = {};
+    if (isEdit && !changed.bank && onFile.accountNumber) {
+      setVerifyingBank(true);
+      try {
+        const result = parseBankCheckResult(await verifyWorkerBankDetailAPI(workerId));
+        if (result.ok) setOnFile((prev) => ({ ...prev, bankVerified: true }));
+        showBankResult(result, { saved: true });
+      } catch (error) {
+        Swal.fire({ icon: "error", title: "Verification failed", text: apiError(error).message });
+      } finally {
+        setVerifyingBank(false);
+      }
+      return;
+    }
+
+    if (!/^\d{6,18}$/.test(form.accountNumber)) e.accountNumber = "Enter the full account number to verify";
+    if (!ifscPattern.test(form.ifscCode)) e.ifscCode = "Enter a valid IFSC code to verify";
+    if (!accountHolderName) e.firstName = "Enter the worker's name to verify the account holder";
+    if (Object.keys(e).length) {
+      setErrors((prev) => ({ ...prev, ...e }));
+      return;
+    }
+    setVerifyingBank(true);
+    try {
+      const result = parseBankCheckResult(
+        await checkBankDetailAPI({
+          accountHolderName,
+          accountNumber: form.accountNumber,
+          ifscCode: form.ifscCode,
+        }),
+      );
+      setBankCheck(result.ok ? "ok" : "failed");
+      showBankResult(result, { saved: false });
+    } catch (error) {
+      Swal.fire({ icon: "error", title: "Verification failed", text: apiError(error).message });
+    } finally {
+      setVerifyingBank(false);
+    }
+  };
+
   const reset = () => {
     setForm(initialForm);
     setErrors({});
@@ -618,5 +695,9 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
     applyAadhaarVerification,
     submit,
     reset,
+    verifyBank,
+    verifyingBank,
+    bankCheck,
+    bankChanged: changed.bank,
   };
 };

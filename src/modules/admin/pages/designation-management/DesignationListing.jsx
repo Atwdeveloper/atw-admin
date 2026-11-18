@@ -30,6 +30,7 @@ import { useDesignationListManagement } from "../../adminhooks/useDesignationLis
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import SortableHeader from "../../../../common/components/SortableHeader";
+import MasterdataThumb from "../../../../common/components/MasterdataThumb";
 import { getDesignationAPI } from "../../../../api/adminV1/masterdataAPI";
 
 import ActionMenuPortal from "../../../../common/components/ActionMenuPortal";
@@ -734,12 +735,7 @@ const DesignationListing = () => {
                       {designation.name}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200">
-                        {/* The list endpoint never returns image URLs — see the view modal */}
-                        <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                          <ImageIcon className="w-5 h-5 text-gray-400" />
-                        </div>
-                      </div>
+                      <MasterdataThumb kind="designations" id={designation.id} fetcher={getDesignationAPI} alt={designation.name} />
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">
                       {designation.industries &&

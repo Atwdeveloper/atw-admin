@@ -17,7 +17,7 @@ import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
-import { validateRate } from "./AddMinimumWage";
+import { validateRate, todayISO } from "./AddMinimumWage";
 
 // Rates are immutable: this page adds a NEW dated version for the same
 // state + skill category, prefilled from the version it was opened from.
@@ -71,6 +71,9 @@ const EditMinimumWage = () => {
     if (rateError) newErrors.minDailyRate = rateError;
     if (!formData.effectiveFrom) {
       newErrors.effectiveFrom = "Effective date for the new version is required";
+    } else if (formData.effectiveFrom < todayISO()) {
+      // A typed-in date can bypass the picker's min, so check here too.
+      newErrors.effectiveFrom = "Effective date can't be in the past";
     } else if (formData.effectiveFrom === source?.effectiveFrom && source?.status === "ACTIVE") {
       newErrors.effectiveFrom =
         "This date is taken by the current version. To correct it, deactivate that version first.";
@@ -260,6 +263,7 @@ const EditMinimumWage = () => {
               id="effectiveFrom"
               name="effectiveFrom"
               value={formData.effectiveFrom}
+              min={todayISO()}
               onChange={handleChange}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                 errors.effectiveFrom ? "border-red-500" : "border-gray-300"

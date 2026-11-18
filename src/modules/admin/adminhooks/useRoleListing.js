@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Swal from "sweetalert2";
 import { useDebounce } from "../../../common/hooks/useDebounce";
 import {
-  getRolesAPI,
+  getRolesPageAPI,
   deleteRoleAPI,
   getPermissionCatalogAPI,
 } from "../../../api/adminV1/roleAPI";
@@ -12,6 +12,10 @@ import { catalogToModules, groupCodes } from "../../../api/adminV1/permissions";
 import { apiError } from "../../../api/javaApi";
 
 const PAGE_SIZE = 10;
+
+// UI sort keys -> backend sort fields. Permission count isn't a column the
+// backend can sort by, so it isn't here.
+const SORT_FIELDS = { profile_name: "name", description: "description", systemRole: "systemRole" };
 
 // AdminRoleDto -> the shape RoleListing and ViewRoleModal render.
 const toListRole = (role, modules) => ({
@@ -24,52 +28,23 @@ const toListRole = (role, modules) => ({
   total_permissions: (role.permissionCodes || []).length,
 });
 
+// GET /admin/roles is paged, searchable (name/description), filterable by
+// systemRole and sortable on the server.
 export const useRoleListing = () => {
-  const [allRoles, setAllRoles] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(1); // 1-based in the UI, 0-based on the API
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
 
-  const defaultFilters = { search: "" };
+  // roleType: "" (all) | "system" | "custom"
+  const defaultFilters = { search: "", roleType: "" };
   const [filters, setFilters] = useState(defaultFilters);
-  const debouncedFilters = useDebounce(filters, 300);
+  const debouncedSearch = useDebounce(filters.search.trim(), 400);
 
-  const fetchRoles = useCallback(async () => {
-    setLoading(true);
-    try {
-      // The catalog only supplies nicer labels; the list works without it.
-      const [roles, catalog] = await Promise.all([
-        getRolesAPI(),
-        getPermissionCatalogAPI().catch(() => []),
-      ]);
-      const modules = catalogToModules(catalog);
-      setAllRoles((roles || []).map((role) => toListRole(role, modules)));
-    } catch (error) {
-      console.error("Failed to fetch roles:", error);
-      setAllRoles([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchRoles();
-  }, [fetchRoles]);
-
-  // The backend has no search or paging for roles, so both happen here.
-  const filteredRoles = useMemo(() => {
-    const q = debouncedFilters.search.trim().toLowerCase();
-    if (!q) return allRoles;
-    return allRoles.filter(
-      (role) =>
-        role.profile_name?.toLowerCase().includes(q) ||
-        role.description?.toLowerCase().includes(q),
-    );
-  }, [allRoles, debouncedFilters.search]);
-
-  // GET /admin/roles takes no sort param, but it returns every role, so sorting
-  // the whole list here (before paging) gives the same result as server sorting.
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
   const handleSort = (key) => {
+    if (!SORT_FIELDS[key]) return;
     setSortConfig((prev) => {
       if (prev.key !== key) return { key, direction: "asc" };
       if (prev.direction === "asc") return { key, direction: "desc" };
@@ -78,31 +53,59 @@ export const useRoleListing = () => {
     setPage(1);
   };
 
-  const sortedRoles = useMemo(() => {
-    if (!sortConfig.key) return filteredRoles;
-    const valueOf = (role) => {
-      if (sortConfig.key === "permissions") return role.total_permissions;
-      if (sortConfig.key === "systemRole") return role.systemRole ? 1 : 0;
-      return (role[sortConfig.key] || "").toString().toLowerCase();
-    };
-    const dir = sortConfig.direction === "asc" ? 1 : -1;
-    return [...filteredRoles].sort((a, b) => {
-      const va = valueOf(a);
-      const vb = valueOf(b);
-      return va < vb ? -dir : va > vb ? dir : 0;
-    });
-  }, [filteredRoles, sortConfig]);
+  // Permission labels for the view modal; loaded once.
+  const modulesRef = useRef([]);
+  const [catalogReady, setCatalogReady] = useState(false);
+  useEffect(() => {
+    getPermissionCatalogAPI()
+      .then((catalog) => (modulesRef.current = catalogToModules(catalog)))
+      .catch(() => (modulesRef.current = []))
+      .finally(() => setCatalogReady(true));
+  }, []);
 
-  const totalPages = Math.max(1, Math.ceil(sortedRoles.length / PAGE_SIZE));
-  const roles = sortedRoles.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const requestRef = useRef(0);
+  const fetchRoles = useCallback(async () => {
+    if (!catalogReady) return;
+    const requestId = ++requestRef.current;
+    setLoading(true);
+    try {
+      const result = await getRolesPageAPI({
+        page: page - 1,
+        size: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        systemRole: filters.roleType === "system" ? true : filters.roleType === "custom" ? false : undefined,
+        sort: sortConfig.key ? `${SORT_FIELDS[sortConfig.key]},${sortConfig.direction}` : undefined,
+      });
+      if (requestId !== requestRef.current) return;
+      setRoles((result?.content || []).map((role) => toListRole(role, modulesRef.current)));
+      setTotalPages(Math.max(1, result?.totalPages || 1));
+      setTotalRecords(result?.totalElements || 0);
+    } catch (error) {
+      if (requestId !== requestRef.current) return;
+      const err = apiError(error);
+      // An unsupported sort field is a 400 — fall back to the default order.
+      if (sortConfig.key && err.code === "VALIDATION_ERROR") {
+        Swal.fire({ icon: "info", title: "Can't sort by this column", text: err.message });
+        setSortConfig({ key: null, direction: "asc" });
+        return;
+      }
+      console.error("Failed to fetch roles:", error);
+      setRoles([]);
+      setTotalPages(1);
+      setTotalRecords(0);
+    } finally {
+      if (requestId === requestRef.current) setLoading(false);
+    }
+  }, [catalogReady, page, debouncedSearch, filters.roleType, sortConfig]);
 
-  // Back to page 1 when the search changes or the last page empties.
+  useEffect(() => {
+    fetchRoles();
+  }, [fetchRoles]);
+
+  // Back to page 1 when the search or role type changes.
   useEffect(() => {
     setPage(1);
-  }, [debouncedFilters.search]);
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  }, [debouncedSearch, filters.roleType]);
 
   const handleSearch = () => setPage(1);
 
@@ -127,7 +130,6 @@ export const useRoleListing = () => {
 
     try {
       await deleteRoleAPI(id);
-      setAllRoles((prev) => prev.filter((role) => role.id !== id));
       Swal.fire({
         icon: "success",
         title: "Deleted!",
@@ -135,6 +137,9 @@ export const useRoleListing = () => {
         timer: 1500,
         showConfirmButton: false,
       });
+      // Step back if that was the last role on this page.
+      if (roles.length === 1 && page > 1) setPage(page - 1);
+      else fetchRoles();
     } catch (error) {
       // 409: staff are still assigned. 422: system role.
       const { code, message } = apiError(error, "Could not delete the role. Please try again.");
@@ -158,7 +163,7 @@ export const useRoleListing = () => {
     loading,
     page,
     totalPages,
-    totalRecords: filteredRoles.length,
+    totalRecords,
     setPage,
     filters,
     setFilters,
