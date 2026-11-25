@@ -57,13 +57,13 @@ const menuItems = [
     label: "Company",
     icon: Building2,
     path: "/admin/company/listing",
-    requiredPermission: { module: "companies", action: "view" },
+    requiredPermission: { module: "company", action: "view" },
     subItems: [
       {
         label: "Company Listing",
         path: "/admin/company/listing",
         icon: List,
-        requiredPermission: { module: "companies", action: "view" },
+        requiredPermission: { module: "company", action: "view" },
       },
     ],
   },
@@ -403,7 +403,7 @@ const menuItems = [
 ];
 
 // Only these sections run on the new Java backend so far.
-const ADMIN_V1_SECTIONS = ["worker", "attendance", "staff", "roles", "industries", "minimum-wage"];
+const ADMIN_V1_SECTIONS = ["company", "worker", "attendance", "staff", "roles", "industries", "minimum-wage"];
 const visibleMenuItems = LEGACY_ADMIN_FEATURES
   ? menuItems
   : menuItems.filter((item) => ADMIN_V1_SECTIONS.includes(item.id));

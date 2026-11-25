@@ -15,11 +15,13 @@ export const useAdminLogin = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  const handleLogin = async (usernameOrEmail, password) => {
+  // Resolves true when login moved on (OTP step or session started), false on
+  // failure — the caller resets the captcha then, since its token is single-use.
+  const handleLogin = async (usernameOrEmail, password, recaptchaToken) => {
     setLoading(true);
     setError("");
     try {
-      const result = await loginAPI(usernameOrEmail.trim(), password);
+      const result = await loginAPI(usernameOrEmail.trim(), password, recaptchaToken);
 
       if (result.otpRequired) {
         // Step 2: the OTP is emailed. testOtp is only present on local/test
@@ -32,7 +34,7 @@ export const useAdminLogin = () => {
             testOtp: result.testOtp || null,
           },
         });
-        return;
+        return true;
       }
 
       // OTP disabled on the backend — tokens come straight back.
@@ -41,10 +43,12 @@ export const useAdminLogin = () => {
         result.tokens.admin.mustChangePassword ? CHANGE_PASSWORD_PATH : "/admin/dashboard",
         { replace: true },
       );
+      return true;
     } catch (err) {
       const { message } = apiError(err, "Login failed. Please try again.");
       setError(message);
       Swal.fire({ icon: "error", title: "Login Failed", text: message });
+      return false;
     } finally {
       setLoading(false);
     }

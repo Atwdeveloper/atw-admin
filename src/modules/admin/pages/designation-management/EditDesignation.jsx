@@ -25,6 +25,7 @@ import { useAdminPermissions } from "../../../../common/hooks/useAdminPermission
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
 import MultiSelectDropdown from "../../../../common/components/MultiSelectDropdown";
+import PrimaryIndustryPicker, { nextPrimary } from "../../components/designation/PrimaryIndustryPicker";
 
 const EditDesignation = () => {
   const { id } = useParams();
@@ -33,6 +34,7 @@ const EditDesignation = () => {
   const [formData, setFormData] = useState({
     name: "",
     industry_ids: [],
+    primary_industry_id: "",
     skill_category_id: "",
     image: null,
   });
@@ -73,6 +75,13 @@ const EditDesignation = () => {
         setFormData({
           name: designation.name || "",
           industry_ids: assignedIndustryIds,
+          // The backend may return the primary as primaryIndustryId or as a
+          // flag on the industry; default to the first one.
+          primary_industry_id: nextPrimary(
+            designation.primaryIndustryId ||
+              (designation.industries || []).find((ind) => ind.primary)?.id,
+            assignedIndustryIds,
+          ),
           skill_category_id: designation.skillCategoryId || "",
           image: null,
         });
@@ -134,8 +143,12 @@ const EditDesignation = () => {
   };
 
   const handleIndustriesChange = (industryIds) => {
-    setFormData((prev) => ({ ...prev, industry_ids: industryIds }));
-    setErrors((prev) => ({ ...prev, industry_ids: "" }));
+    setFormData((prev) => ({
+      ...prev,
+      industry_ids: industryIds,
+      primary_industry_id: nextPrimary(prev.primary_industry_id, industryIds),
+    }));
+    setErrors((prev) => ({ ...prev, industry_ids: "", primary_industry_id: "" }));
   };
 
   const validate = () => {
@@ -151,6 +164,8 @@ const EditDesignation = () => {
 
     if (!formData.industry_ids || formData.industry_ids.length === 0) {
       newErrors.industry_ids = "Select at least one industry";
+    } else if (!formData.industry_ids.includes(formData.primary_industry_id)) {
+      newErrors.primary_industry_id = "Select the primary industry";
     }
 
     setErrors(newErrors);
@@ -166,6 +181,7 @@ const EditDesignation = () => {
       await updateDesignationAPI(id, {
         name: formData.name.trim(),
         industryIds: formData.industry_ids,
+        primaryIndustryId: formData.primary_industry_id,
       });
     } catch (error) {
       const { code, message, fieldErrors } = apiError(error, "Something went wrong");
@@ -176,6 +192,7 @@ const EditDesignation = () => {
           ...prev,
           name: fieldErrors.name || prev.name,
           industry_ids: fieldErrors.industryIds || prev.industry_ids,
+          primary_industry_id: fieldErrors.primaryIndustryId || prev.primary_industry_id,
         }));
       } else {
         Swal.fire({ icon: "error", title: "Failed to update designation", text: message });
@@ -330,6 +347,17 @@ const EditDesignation = () => {
               </p>
             )}
           </div>
+
+          <PrimaryIndustryPicker
+            industries={industries}
+            selectedIds={formData.industry_ids}
+            primaryId={formData.primary_industry_id}
+            onChange={(primaryId) => {
+              setFormData((prev) => ({ ...prev, primary_industry_id: primaryId }));
+              setErrors((prev) => ({ ...prev, primary_industry_id: "" }));
+            }}
+            error={errors.primary_industry_id}
+          />
 
           <div>
             <label

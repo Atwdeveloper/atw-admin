@@ -6,7 +6,9 @@ import {
   getStaffListAPI,
   deleteStaffAPI,
   setStaffStatusAPI,
+  getStaffFilterOptionsAPI,
 } from "../../../api/adminV1/staffAPI";
+import { readFilterOptions, citiesForStates } from "../utils/filterOptions";
 import { getRolesAPI } from "../../../api/adminV1/roleAPI";
 import { getStatesAPI, getCitiesAPI } from "../../../api/adminV1/geographyAPI";
 import { apiError } from "../../../api/javaApi";
@@ -118,14 +120,28 @@ export const useStaffListing = () => {
     setPage(1);
   }, [debouncedFilters]);
 
-  // Role filter options (needs admin_roles.view; the filter just hides without it), and states.
+  // Filter dropdowns from /admin/staff/filter-options (only values in use).
+  // Any list it doesn't return falls back to the full list: roles (needs
+  // admin_roles.view; the filter just hides without it) and states.
+  const [scopedCities, setScopedCities] = useState(null);
   useEffect(() => {
-    getRolesAPI()
-      .then((list) => setRoles(list || []))
-      .catch(() => setRoles([]));
-    getStatesAPI()
-      .then((list) => setStates(Array.isArray(list) ? list : []))
-      .catch(() => setStates([]));
+    getStaffFilterOptionsAPI()
+      .catch(() => null)
+      .then((opts) => {
+        const scopedRoles = readFilterOptions(opts, "roles");
+        const scopedStates = readFilterOptions(opts, "states");
+        setScopedCities(readFilterOptions(opts, "cities"));
+        if (scopedRoles) setRoles(scopedRoles);
+        else
+          getRolesAPI()
+            .then((list) => setRoles(list || []))
+            .catch(() => setRoles([]));
+        if (scopedStates) setStates(scopedStates);
+        else
+          getStatesAPI()
+            .then((list) => setStates(Array.isArray(list) ? list : []))
+            .catch(() => setStates([]));
+      });
   }, []);
 
   // City options = cities of the selected states; drop picked cities that no longer fit.
@@ -138,7 +154,11 @@ export const useStaffListing = () => {
       setFilters((prev) => (prev.cityIds.length ? { ...prev, cityIds: [] } : prev));
       return;
     }
-    Promise.all(ids.map((id) => getCitiesAPI(id).catch(() => []))).then((lists) => {
+    const fromScoped = citiesForStates(scopedCities, ids);
+    const load = fromScoped
+      ? Promise.resolve([fromScoped])
+      : Promise.all(ids.map((id) => getCitiesAPI(id).catch(() => [])));
+    load.then((lists) => {
       if (cancelled) return;
       const all = lists.flatMap((l) => (Array.isArray(l) ? l : []));
       const allowed = new Set(all.map((c) => c.id));
@@ -152,7 +172,7 @@ export const useStaffListing = () => {
     return () => {
       cancelled = true;
     };
-  }, [stateKey]);
+  }, [stateKey, scopedCities]);
 
   const visibleStaffs = useMemo(
     () => staffs.filter((s) => matchesOnPage(s, filters)),

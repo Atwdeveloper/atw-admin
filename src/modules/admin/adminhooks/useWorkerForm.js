@@ -20,7 +20,6 @@ import {
   submitWorkerPanAPI,
 } from "../../../api/adminV1/workerAPI";
 import {
-  getDepartmentsAPI,
   getIndustriesAPI,
   getDesignationsAPI,
   getSkillsAPI,
@@ -54,7 +53,6 @@ const emptyForm = {
   dateOfBirth: "",
   fatherName: "",
   workExperienceYears: "",
-  departmentId: "",
   industryId: "",
   designations: [], // [{ id, name, image }]
   primaryDesignationId: "",
@@ -76,7 +74,6 @@ const emptyForm = {
   bankName: "",
   accountNumber: "",
   ifscCode: "",
-  branchName: "",
 };
 
 // Backend field names -> form keys, for fieldErrors.
@@ -98,11 +95,10 @@ const PROFILE_KEYS = [
   "dateOfBirth",
   "fatherName",
   "workExperienceYears",
-  "departmentId",
   "industryId",
 ];
 const ADDRESS_KEYS = ["line1", "line2", "stateId", "cityId", "pincode"];
-const BANK_KEYS = ["bankName", "accountNumber", "ifscCode", "branchName"];
+const BANK_KEYS = ["bankName", "accountNumber", "ifscCode"];
 
 const designationKey = (f) =>
   JSON.stringify([f.designations.map((d) => d.id).sort(), f.primaryDesignationId]);
@@ -121,7 +117,6 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
   // What's on file (edit): masked numbers, KYC status, bank verification.
   const [onFile, setOnFile] = useState({});
 
-  const [departments, setDepartments] = useState([]);
   const [industries, setIndustries] = useState([]);
   const [designations, setDesignations] = useState([]);
   const [designationsLoading, setDesignationsLoading] = useState(false);
@@ -160,18 +155,11 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
   const load = useCallback(async () => {
     setFormLoading(true);
     try {
-      const [dep, ind, st] = await Promise.all([
-        getDepartmentsAPI(),
-        getIndustriesAPI(),
-        getStatesAPI(),
-      ]);
-      setDepartments(asList(dep));
+      const [ind, st] = await Promise.all([getIndustriesAPI(), getStatesAPI()]);
       setIndustries(asList(ind));
       setStates(asList(st));
 
       if (!isEdit) {
-        // No Department field on the form; it's optional on the API. Edit
-        // sends back whatever department the worker already has.
         setForm(emptyForm);
         setInitialForm(emptyForm);
         return;
@@ -196,7 +184,6 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
         dateOfBirth: worker.dateOfBirth || "",
         fatherName: worker.fatherName || "",
         workExperienceYears: worker.workExperienceYears ?? "",
-        departmentId: worker.departmentId || "",
         industryId: worker.industryId || "",
         designations: (worker.designations || []).map(asItem),
         primaryDesignationId: worker.designations?.find((d) => d.primary)?.id || "",
@@ -210,7 +197,6 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
         // A masked number can't be sent back — the field starts empty instead.
         accountNumber: isMasked(bank?.accountNumber) ? "" : bank?.accountNumber || "",
         ifscCode: bank?.ifscCode || "",
-        branchName: bank?.branchName || "",
       };
       skipSkillPrune.current = true;
       setForm(loaded);
@@ -427,7 +413,6 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
     personalEmail: orNull(form.personalEmail.trim()),
     fatherName: orNull(form.fatherName.trim()),
     workExperienceYears: form.workExperienceYears === "" ? null : Number(form.workExperienceYears),
-    departmentId: orNull(form.departmentId),
     industryId: orNull(form.industryId),
   });
   const addressBody = () => ({
@@ -442,7 +427,6 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
     bankName: orNull(form.bankName.trim()),
     accountNumber: orNull(form.accountNumber),
     ifscCode: orNull(form.ifscCode),
-    branchName: orNull(form.branchName.trim()),
   });
 
   // Maps a failed call onto field errors where possible. Returns the message.
@@ -678,7 +662,6 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
     onFile,
     isDirty,
     accountHolderName,
-    departments,
     industries,
     designations,
     designationsLoading,

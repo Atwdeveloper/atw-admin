@@ -150,6 +150,12 @@ const EditDesignation = () => {
       await updateDesignationAPI(designation_id, {
         name: formData.name.trim(),
         industryIds: industryIds.length ? industryIds : [industryId],
+        // Keep the existing primary industry (this page can't change it).
+        primaryIndustryId:
+          original?.primaryIndustryId ||
+          (original?.industries || []).find((i) => i.primary)?.id ||
+          industryIds[0] ||
+          industryId,
       });
     } catch (error) {
       const { code, message, fieldErrors } = apiError(error, "Failed to update designation");

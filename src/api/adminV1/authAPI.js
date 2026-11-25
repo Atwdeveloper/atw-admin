@@ -6,8 +6,11 @@ const post = (path, body) =>
   javaApi.post(`/admin/auth/${path}`, body, { skipAuth: true }).then(unwrap);
 
 // -> { otpRequired, challengeId?, tokens?, testOtp? }
-export const loginAPI = (usernameOrEmail, password) =>
-  post("login", { usernameOrEmail, password });
+// recaptchaToken: the reCAPTCHA v2 token from the login form, sent only when
+// the widget is enabled. The backend must verify it (siteverify) for the
+// captcha to actually protect anything.
+export const loginAPI = (usernameOrEmail, password, recaptchaToken) =>
+  post("login", { usernameOrEmail, password, ...(recaptchaToken ? { recaptchaToken } : {}) });
 
 // -> AuthTokens { accessToken, refreshToken, expiresIn, admin }
 export const verifyOtpAPI = (challengeId, otp) => post("verify-otp", { challengeId, otp });

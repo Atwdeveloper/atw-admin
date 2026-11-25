@@ -100,6 +100,7 @@ const AddDesignation = () => {
       created = await createDesignationAPI({
         name: formData.name.trim(),
         industryIds: [industryId],
+        primaryIndustryId: industryId,
         skillCategoryId: formData.skillCategoryId || null,
       });
     } catch (error) {

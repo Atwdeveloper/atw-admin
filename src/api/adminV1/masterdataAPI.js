@@ -166,7 +166,15 @@ export const removeSkillImageAPI = removeImage("skills");
 // No edit and no delete: a rate change is a new version; a wrong entry is deactivated.
 // params: { stateIds[], skillCategoryIds[], statuses[], page, size, sort }
 //   — sort defaults to effectiveFrom,desc; no free-text search.
+// Full version history; the listing uses it as the drill-down for one
+// state + skill category (stateIds/skillCategoryIds with one id each).
 export const getMinimumWageRatesAPI = getPage("minimum-wage-rates");
+// Main listing: the rate currently in force per state + skill category.
+// Same params/paging as the history list.
+export const getCurrentMinimumWageRatesAPI = getPage("minimum-wage-rates/current");
+// States / skill categories that actually have rates, for the filter dropdowns.
+export const getMinimumWageFilterOptionsAPI = () =>
+  javaApi.get(`${BASE}/minimum-wage-rates/filter-options`).then(unwrap);
 export const getMinimumWageRateAPI = (id) => javaApi.get(`${BASE}/minimum-wage-rates/${id}`).then(unwrap);
 // The version in force on asOf (YYYY-MM-DD, defaults to today IST); 404 if none.
 export const getEffectiveMinimumWageRateAPI = ({ stateId, skillCategoryId, asOf }) =>

@@ -17,6 +17,10 @@ export const getStaffListAPI = ({ page = 0, size = 10, sort, ...filters } = {}) 
   return javaApi.get("/admin/staff", { params, paramsSerializer: { indexes: null } }).then(unwrap);
 };
 
+// Values actually in use across staff (roles, states, cities, ...), for the
+// listing's filter dropdowns. Read it through readFilterOptions (utils/filterOptions).
+export const getStaffFilterOptionsAPI = () => javaApi.get("/admin/staff/filter-options").then(unwrap);
+
 export const getStaffAPI = (id) => javaApi.get(`/admin/staff/${id}`).then(unwrap);
 
 // body: { username?, email, fullName, phone?, roleIds[] } — no password; the

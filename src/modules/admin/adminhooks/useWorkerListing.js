@@ -15,10 +15,9 @@ import { useDebounce } from "../../../common/hooks/useDebounce";
 import { showBulkSummary, blobApiError, downloadBlob } from "../utils/workerUtils";
 
 // Activate = ACTIVE, Deactivate = INACTIVE (the backend requires a reason).
-// The backend only allows ACTIVE from SUSPENDED/INACTIVE: registered/KYC-pending
-// workers become active by completing KYC, and blacklisting needs a super-admin
-// to reverse.
-const ACTIVATABLE = ["SUSPENDED", "INACTIVE"];
+// The backend only allows ACTIVE from SUSPENDED/INACTIVE/BLACKLISTED:
+// registered/KYC-pending workers become active by completing KYC.
+const ACTIVATABLE = ["SUSPENDED", "INACTIVE", "BLACKLISTED"];
 
 // The backend requires a reason for INACTIVE; the admin isn't asked for one,
 // so a fixed reason is sent (it shows up in the worker's status history).
@@ -41,7 +40,6 @@ const PAGE_SIZE = 10;
 export const defaultWorkerFilters = {
   search: "",
   status: "", // single status from the header dropdown ("" = all)
-  departmentIds: [],
   industryIds: [],
   designationIds: [],
   kycStatuses: [],
@@ -50,6 +48,7 @@ export const defaultWorkerFilters = {
   cityIds: [],
   registeredFrom: "", // YYYY-MM-DD
   registeredTo: "",
+  faceEnrolled: "", // "" = all, "true" = enrolled, "false" = not enrolled
 };
 
 // Filter state -> the list/export query shape. Every non-empty filter is
@@ -57,7 +56,6 @@ export const defaultWorkerFilters = {
 const toQuery = (f) => ({
   search: f.search.trim() || undefined,
   status: f.status ? [f.status] : undefined,
-  departmentId: f.departmentIds.length ? f.departmentIds : undefined,
   industryId: f.industryIds.length ? f.industryIds : undefined,
   designationId: f.designationIds.length ? f.designationIds : undefined,
   kycStatus: f.kycStatuses.length ? f.kycStatuses : undefined,
@@ -65,6 +63,7 @@ const toQuery = (f) => ({
   cityId: f.cityIds.length ? f.cityIds : undefined,
   registeredFrom: f.registeredFrom || undefined,
   registeredTo: f.registeredTo || undefined,
+  faceEnrolled: f.faceEnrolled || undefined,
 });
 
 export const useWorkerListing = () => {
@@ -167,10 +166,7 @@ export const useWorkerListing = () => {
       Swal.fire({
         icon: "info",
         title: "Can't activate this worker",
-        text:
-          worker.status === "BLACKLISTED"
-            ? "Blacklisted workers can't be activated."
-            : "A registered worker becomes Active automatically once their KYC is verified.",
+        text: "A registered worker becomes Active automatically once their KYC is verified.",
       });
       return;
     }
@@ -246,7 +242,7 @@ export const useWorkerListing = () => {
     const count = selectedIds.length;
     const result = await Swal.fire({
       title: "Are you sure?",
-      text: `${count} selected worker${count > 1 ? "s" : ""} will be activated. Workers that can't be activated (registered, KYC pending, blacklisted) are skipped.`,
+      text: `${count} selected worker${count > 1 ? "s" : ""} will be activated. Workers that can't be activated (registered, KYC pending) are skipped.`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, activate",

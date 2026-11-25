@@ -15,6 +15,7 @@ import {
   X,
   ClipboardList,
   SearchCheck,
+  History,
 } from "lucide-react";
 import {
   containerVariants,
@@ -29,6 +30,7 @@ import MultiSelectDropdown from "../../../../common/components/MultiSelectDropdo
 import {
   getEffectiveMinimumWageRateAPI,
   getMinimumWageRateAPI,
+  getMinimumWageRatesAPI,
 } from "../../../../api/adminV1/masterdataAPI";
 import { apiError } from "../../../../api/javaApi";
 
@@ -147,6 +149,92 @@ const EffectiveRateLookup = ({ states, skillCategories }) => {
         </p>
       )}
     </motion.div>
+  );
+};
+
+// ====================== RATE HISTORY ======================
+// Every version for one state + skill category (newest first), from the
+// history endpoint filtered to that pair.
+const RateHistory = ({ rate }) => {
+  const [versions, setVersions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!rate?.stateId || !rate?.skillCategoryId) return;
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    getMinimumWageRatesAPI({
+      stateIds: [rate.stateId],
+      skillCategoryIds: [rate.skillCategoryId],
+      page: 0,
+      size: 100,
+      sort: "effectiveFrom,desc",
+    })
+      .then((res) => !cancelled && setVersions(res?.content || []))
+      .catch((err) => !cancelled && setError(apiError(err).message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [rate?.stateId, rate?.skillCategoryId]);
+
+  return (
+    <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-6 mt-4">
+      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4 flex items-center">
+        <History className="text-amber-500" />
+        <span className="ml-2">Rate History</span>
+        {loading && (
+          <span className="ml-3 w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
+        )}
+      </h4>
+      {error ? (
+        <p className="text-sm text-red-600">{error}</p>
+      ) : !loading && versions.length === 0 ? (
+        <p className="text-sm text-slate-500">No versions found.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-slate-600">
+                <th className="py-2 pr-4 font-medium">Effective From</th>
+                <th className="py-2 pr-4 font-medium">Min. Daily Rate</th>
+                <th className="py-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {versions.map((v) => {
+                const current = v.id === rate.id;
+                return (
+                  <tr
+                    key={v.id}
+                    className={`border-b border-slate-100 dark:border-slate-700 ${
+                      current ? "font-semibold text-blue-700 dark:text-blue-300" : "text-slate-800 dark:text-slate-200"
+                    }`}
+                  >
+                    <td className="py-2 pr-4 whitespace-nowrap">
+                      {formatDate(v.effectiveFrom)}
+                      {current && <span className="ml-2 text-xs font-medium">(current)</span>}
+                    </td>
+                    <td className="py-2 pr-4">{v.minDailyRate}</td>
+                    <td className="py-2">
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                          v.status === "ACTIVE" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                        }`}
+                      >
+                        {v.status === "ACTIVE" ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -272,6 +360,7 @@ const MinimumWageViewModal = ({ rate, isOpen, onClose, onEdit, detailsLoading })
                   </div>
                 </div>
               </div>
+              <RateHistory rate={rate} />
             </div>
 
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 px-6 py-4 border-t border-slate-200 dark:border-slate-700 rounded-b-2xl">
@@ -552,9 +641,6 @@ const MinimumWageListing = () => {
                   />
                 </th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                  S.No.
-                </th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
                   State
                 </th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
@@ -586,7 +672,7 @@ const MinimumWageListing = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-8">
+                  <td colSpan="7" className="text-center py-8">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
@@ -594,7 +680,7 @@ const MinimumWageListing = () => {
                 </tr>
               ) : rates.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-10 text-gray-500">
+                  <td colSpan="7" className="text-center py-10 text-gray-500">
                     No minimum wage rates found.
                   </td>
                 </tr>
@@ -619,9 +705,6 @@ const MinimumWageListing = () => {
                         onChange={() => toggleSelectRate(rate.id)}
                         className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {(page - 1) * pageSize + index + 1}
                     </td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
                       {rate.stateName || "-"}

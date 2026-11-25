@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { User, Lock, Eye, EyeOff, Phone } from "lucide-react";
 import { useAdminLogin } from "../adminhooks/useAdminLogin";
 import Cookies from "js-cookie";
 import { useNavigate } from "@/lib/navigation";
+import ReCaptcha, { RECAPTCHA_ENABLED } from "../../../common/components/ReCaptcha";
 const AdminLogin = () => {
   const { handleLogin, loading } = useAdminLogin();
   const [formData, setFormData] = useState({ username: "", password: "" });
-  const [errors, setErrors] = useState({ username: "", password: "" });
+  const [errors, setErrors] = useState({ username: "", password: "", captcha: "" });
+  const [captchaToken, setCaptchaToken] = useState(null);
+  const captchaRef = useRef(null);
   const [showPassword, setShowPassword] = useState(false);
   const [logoUrl, setLogoUrl] = useState("");
   const [supportEmail, setSupportEmail] = useState("");
@@ -51,10 +54,15 @@ const AdminLogin = () => {
     }
   };
 
-  const onSubmit = (e) => {
+  const handleCaptchaChange = (token) => {
+    setCaptchaToken(token);
+    if (token) setErrors((prev) => ({ ...prev, captcha: "" }));
+  };
+
+  const onSubmit = async (e) => {
     e.preventDefault();
 
-    let newErrors = { username: "", password: "" };
+    let newErrors = { username: "", password: "", captcha: "" };
     let isValid = true;
 
     if (!formData.username.trim()) {
@@ -64,6 +72,11 @@ const AdminLogin = () => {
 
     if (!formData.password.trim()) {
       newErrors.password = "Password is required";
+      isValid = false;
+    }
+
+    if (RECAPTCHA_ENABLED && !captchaToken) {
+      newErrors.captcha = "Please confirm you're not a robot";
       isValid = false;
     }
 
@@ -78,7 +91,9 @@ const AdminLogin = () => {
       localStorage.removeItem("rememberedUsername");
     }
 
-    handleLogin(formData.username, formData.password);
+    const ok = await handleLogin(formData.username, formData.password, captchaToken);
+    // The token is single-use: a failed attempt needs a fresh check.
+    if (!ok) captchaRef.current?.reset();
   };
 
   return (
@@ -182,6 +197,16 @@ const AdminLogin = () => {
               Forgot password?
             </a>
           </div>
+
+          {/* reCAPTCHA (only when NEXT_PUBLIC_RECAPTCHA_SITE_KEY is set) */}
+          {RECAPTCHA_ENABLED && (
+            <div className="flex flex-col items-center">
+              <ReCaptcha ref={captchaRef} onChange={handleCaptchaChange} />
+              {errors.captcha && (
+                <p className="text-red-500 text-sm mt-1">{errors.captcha}</p>
+              )}
+            </div>
+          )}
 
           {/* API Error Message */}
           {/*  {error && (

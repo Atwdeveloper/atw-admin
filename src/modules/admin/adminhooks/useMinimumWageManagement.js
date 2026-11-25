@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import Swal from "sweetalert2";
 import {
-  getMinimumWageRatesAPI,
+  getCurrentMinimumWageRatesAPI,
+  getMinimumWageFilterOptionsAPI,
   getSkillCategoriesAPI,
   setMinimumWageRateStatusAPI,
   bulkMinimumWageRateStatusAPI,
@@ -11,14 +12,17 @@ import {
 import { getStatesAPI } from "../../../api/adminV1/geographyAPI";
 import { apiError } from "../../../api/javaApi";
 import { showBulkResult } from "../utils/bulkResult";
+import { readFilterOptions } from "../utils/filterOptions";
 
 const PAGE_SIZE = 10;
 // Only these fields are sortable server-side (anything else is a 400).
 const SORTABLE = ["effectiveFrom", "minDailyRate", "status", "createdAt"];
 const EMPTY_FILTERS = { stateIds: [], skillCategoryIds: [], status: "" };
 
-// Server-paged. The API filters by any number of states / skill categories /
-// statuses; with no sort it returns the newest effectiveFrom first.
+// Server-paged list of the rate currently in force per state + skill category
+// (GET .../minimum-wage-rates/current). A row's full version history is the
+// drill-down in the view modal. Filters by any number of states / skill
+// categories / statuses.
 export const useMinimumWageManagement = () => {
   const [rates, setRates] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -43,13 +47,17 @@ export const useMinimumWageManagement = () => {
   const [skillCategories, setSkillCategories] = useState([]);
   const [initLoading, setInitLoading] = useState(true);
 
-  // States + skill categories for the filter dropdowns
+  // States + skill categories for the filter dropdowns: only those that have
+  // rates (filter-options), falling back to the full lists if it's unavailable.
   const fetchInit = useCallback(async () => {
     setInitLoading(true);
     try {
+      const opts = await getMinimumWageFilterOptionsAPI().catch(() => null);
+      const scopedStates = readFilterOptions(opts, "states");
+      const scopedCategories = readFilterOptions(opts, "skillCategories");
       const [stateList, categoryList] = await Promise.all([
-        getStatesAPI(),
-        getSkillCategoriesAPI(),
+        scopedStates || getStatesAPI(),
+        scopedCategories || getSkillCategoriesAPI(),
       ]);
       setStates(stateList || []);
       setSkillCategories(categoryList || []);
@@ -71,7 +79,7 @@ export const useMinimumWageManagement = () => {
   const fetchRates = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await getMinimumWageRatesAPI({
+      const result = await getCurrentMinimumWageRatesAPI({
         page: page - 1,
         size: PAGE_SIZE,
         stateIds: filters.stateIds,
@@ -79,9 +87,11 @@ export const useMinimumWageManagement = () => {
         statuses: filters.status ? [filters.status] : undefined,
         sort: sortConfig.key ? `${sortConfig.key},${sortConfig.direction}` : undefined,
       });
-      setRates(result?.content || []);
+      // Paged like the history list; tolerate a plain array too.
+      const content = Array.isArray(result) ? result : result?.content || [];
+      setRates(content);
       setTotalPages(Math.max(1, result?.totalPages || 1));
-      setTotalRecords(result?.totalElements || 0);
+      setTotalRecords(result?.totalElements ?? content.length);
     } catch (error) {
       Swal.fire({
         icon: "error",

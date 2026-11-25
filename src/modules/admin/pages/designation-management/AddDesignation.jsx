@@ -21,6 +21,7 @@ import { useAdminPermissions } from "../../../../common/hooks/useAdminPermission
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
 import MultiSelectDropdown from "../../../../common/components/MultiSelectDropdown";
+import PrimaryIndustryPicker, { nextPrimary } from "../../components/designation/PrimaryIndustryPicker";
 
 const AddDesignation = () => {
   const navigate = useNavigate();
@@ -28,6 +29,7 @@ const AddDesignation = () => {
   const [formData, setFormData] = useState({
     name: "",
     industry_ids: [],
+    primary_industry_id: "",
     skill_category_id: "",
     image: null,
   });
@@ -93,8 +95,12 @@ const AddDesignation = () => {
   };
 
   const handleIndustriesChange = (industryIds) => {
-    setFormData((prev) => ({ ...prev, industry_ids: industryIds }));
-    setErrors((prev) => ({ ...prev, industry_ids: "" }));
+    setFormData((prev) => ({
+      ...prev,
+      industry_ids: industryIds,
+      primary_industry_id: nextPrimary(prev.primary_industry_id, industryIds),
+    }));
+    setErrors((prev) => ({ ...prev, industry_ids: "", primary_industry_id: "" }));
   };
 
   const validate = () => {
@@ -110,6 +116,8 @@ const AddDesignation = () => {
 
     if (!formData.industry_ids || formData.industry_ids.length === 0) {
       newErrors.industry_ids = "Select at least one industry";
+    } else if (!formData.industry_ids.includes(formData.primary_industry_id)) {
+      newErrors.primary_industry_id = "Select the primary industry";
     }
 
     setErrors(newErrors);
@@ -126,6 +134,7 @@ const AddDesignation = () => {
       created = await createDesignationAPI({
         name: formData.name.trim(),
         industryIds: formData.industry_ids,
+        primaryIndustryId: formData.primary_industry_id,
         skillCategoryId: formData.skill_category_id || null,
       });
     } catch (error) {
@@ -137,6 +146,7 @@ const AddDesignation = () => {
           ...prev,
           name: fieldErrors.name || prev.name,
           industry_ids: fieldErrors.industryIds || prev.industry_ids,
+          primary_industry_id: fieldErrors.primaryIndustryId || prev.primary_industry_id,
         }));
       } else {
         Swal.fire({ icon: "error", title: "Failed to add designation", text: message });
@@ -268,6 +278,17 @@ const AddDesignation = () => {
               </p>
             )}
           </div>
+
+          <PrimaryIndustryPicker
+            industries={industries}
+            selectedIds={formData.industry_ids}
+            primaryId={formData.primary_industry_id}
+            onChange={(primaryId) => {
+              setFormData((prev) => ({ ...prev, primary_industry_id: primaryId }));
+              setErrors((prev) => ({ ...prev, primary_industry_id: "" }));
+            }}
+            error={errors.primary_industry_id}
+          />
 
           <div>
             <label

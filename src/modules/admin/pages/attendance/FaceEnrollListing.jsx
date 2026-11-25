@@ -465,7 +465,6 @@ const FaceEnrollListing = () => {
         workerId={viewWorkerId}
         isOpen={!!viewWorkerId}
         onClose={() => setViewWorkerId(null)}
-        departments={filterOptions.departments}
         industries={filterOptions.industries}
       />
     </motion.div>

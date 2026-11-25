@@ -19,7 +19,6 @@ import {
   Fingerprint,
   MapPinned,
   Building,
-  Building2,
   Star,
   ShieldCheck,
   Award,
@@ -824,11 +823,6 @@ const WorkerForm = ({ mode = "create", workerId }) => {
                   </p>
                 )}
                 <FieldError message={errors.ifscCode} />
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Branch Name</label>
-                <IconInput icon={Building2} maxLength={150} placeholder="Branch" {...text("branchName")} />
-                <FieldError message={errors.branchName} />
               </div>
             </div>
             {isEdit && (

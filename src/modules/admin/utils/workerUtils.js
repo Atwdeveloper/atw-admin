@@ -34,17 +34,60 @@ export const GENDER_OPTIONS = [
 export const fullName = (w) =>
   [w?.firstName, w?.middleName, w?.lastName].filter(Boolean).join(" ") || "—";
 
-// Statuses an admin can set by hand. REGISTERED/KYC_PENDING are reached only
-// automatically, and ACTIVE only from SUSPENDED/INACTIVE (otherwise via KYC).
-const SETTABLE = ["ACTIVE", "SUSPENDED", "INACTIVE", "BLACKLISTED"];
-const REASON_REQUIRED = ["SUSPENDED", "INACTIVE", "BLACKLISTED"];
+// Status buttons per current status — a guide for the admin; the backend
+// rejects anything it doesn't allow (with a readable message).
+// Suspend / Deactivate / Blacklist need a reason; going back to ACTIVE doesn't.
+export const REASON_REQUIRED = ["SUSPENDED", "INACTIVE", "BLACKLISTED"];
 
-export const allowedTargets = (current) =>
-  SETTABLE.filter((s) => {
-    if (s === current) return false;
-    if (s === "ACTIVE") return !current || ["SUSPENDED", "INACTIVE"].includes(current);
-    return true;
+const SUSPEND = { status: "SUSPENDED", label: "Suspend" };
+const DEACTIVATE = { status: "INACTIVE", label: "Deactivate" };
+const BLACKLIST = { status: "BLACKLISTED", label: "Blacklist" };
+const REACTIVATE = { status: "ACTIVE", label: "Reactivate" };
+
+const STATUS_ACTIONS = {
+  ACTIVE: [SUSPEND, DEACTIVATE, BLACKLIST],
+  SUSPENDED: [REACTIVATE, BLACKLIST],
+  INACTIVE: [REACTIVATE, BLACKLIST],
+  BLACKLISTED: [{ status: "ACTIVE", label: "Remove from Blacklist" }],
+  REGISTERED: [DEACTIVATE, BLACKLIST],
+  KYC_PENDING: [DEACTIVATE, BLACKLIST],
+};
+
+// -> [{ status, label, danger }]
+export const workerStatusActions = (current) =>
+  (STATUS_ACTIONS[current] || []).map((a) => ({ ...a, danger: REASON_REQUIRED.includes(a.status) }));
+
+const CONFIRM_TEXT = {
+  ACTIVE: "The worker will be set back to Active.",
+  SUSPENDED: "The worker will be suspended.",
+  INACTIVE: "The worker will be deactivated.",
+  BLACKLISTED: "The worker will be blacklisted.",
+};
+
+// Confirms a status change; asks for the (required) reason where needed.
+// Resolves { reason } or null if cancelled.
+export const confirmWorkerStatus = async ({ status, label }) => {
+  const needsReason = REASON_REQUIRED.includes(status);
+  const result = await Swal.fire({
+    title: `${label} this worker?`,
+    text: CONFIRM_TEXT[status],
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: `Yes, ${label.toLowerCase()}`,
+    confirmButtonColor: needsReason ? "#d33" : "#16a34a",
+    ...(needsReason
+      ? {
+          input: "textarea",
+          inputLabel: "Reason (required)",
+          inputPlaceholder: "Why is the status changing?",
+          inputAttributes: { maxlength: "500" },
+          inputValidator: (v) => (!v?.trim() ? "A reason is required." : undefined),
+        }
+      : {}),
   });
+  if (!result.isConfirmed) return null;
+  return { reason: needsReason ? result.value.trim() : undefined };
+};
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(
@@ -52,68 +95,16 @@ const escapeHtml = (value) =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
   );
 
-// Asks for an explicit target status (+ reason where required).
-// Resolves { status, reason } or null if cancelled. `current` is omitted for bulk.
-export const promptStatusChange = async ({ current, count } = {}) => {
-  const targets = allowedTargets(current);
-  if (targets.length === 0) {
-    Swal.fire({
-      icon: "info",
-      title: "No status change available",
-      text: "A worker in this status becomes Active only by completing KYC verification.",
-    });
-    return null;
-  }
-  const subject = count ? `${count} selected worker${count > 1 ? "s" : ""}` : "this worker";
-  const result = await Swal.fire({
-    title: "Change Status",
-    html: `
-      <div class="text-left space-y-3">
-        ${current ? `<p class="text-sm text-gray-600">Current status: <b>${escapeHtml(statusLabel(current))}</b></p>` : ""}
-        <label class="block text-sm font-medium text-gray-700">New status for ${escapeHtml(subject)}</label>
-        <select id="worker-status-target" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-          ${targets.map((s) => `<option value="${s}">${escapeHtml(statusLabel(s))}</option>`).join("")}
-        </select>
-        <label class="block text-sm font-medium text-gray-700">Reason <span id="worker-status-reason-hint" class="text-xs text-gray-500"></span></label>
-        <textarea id="worker-status-reason" rows="3" maxlength="500" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Why is the status changing?"></textarea>
-        <p class="text-xs text-gray-500">Blacklisting a worker, or reversing a blacklist, needs a super-admin.</p>
-      </div>`,
-    showCancelButton: true,
-    confirmButtonText: "Change Status",
-    confirmButtonColor: "#2563eb",
-    focusConfirm: false,
-    didOpen: () => {
-      const select = document.getElementById("worker-status-target");
-      const hint = document.getElementById("worker-status-reason-hint");
-      const sync = () => {
-        hint.textContent = REASON_REQUIRED.includes(select.value) ? "(required)" : "(optional)";
-      };
-      select.addEventListener("change", sync);
-      sync();
-    },
-    preConfirm: () => {
-      const status = document.getElementById("worker-status-target").value;
-      const reason = document.getElementById("worker-status-reason").value.trim();
-      if (REASON_REQUIRED.includes(status) && !reason) {
-        Swal.showValidationMessage(`A reason is required when setting status to ${statusLabel(status)}.`);
-        return false;
-      }
-      return { status, reason };
-    },
-  });
-  return result.isConfirmed ? result.value : null;
-};
-
 // Summary dialog for the bulk endpoints' { successCount, failures[] } result,
 // with failures grouped by reason.
-export const showBulkSummary = ({ title, verb, result, nameOf }) => {
+export const showBulkSummary = ({ title, verb, result, nameOf, noun = ["worker", "workers"] }) => {
   const successCount = result?.successCount ?? 0;
   const failures = result?.failures || [];
   if (failures.length === 0) {
     Swal.fire({
       icon: "success",
       title: "Done!",
-      text: `${successCount} worker${successCount === 1 ? "" : "s"} ${verb}.`,
+      text: `${successCount} ${successCount === 1 ? noun[0] : noun[1]} ${verb}.`,
       timer: 1800,
       showConfirmButton: false,
     });

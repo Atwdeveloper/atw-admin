@@ -37,13 +37,10 @@ import { useAdminPermissions } from "../../../../common/hooks/useAdminPermission
 import SortableHeader from "../../../../common/components/SortableHeader";
 import DateRangeDropdown from "../../../../common/components/DateRangeDropdown.jsx";
 import { useDateRangeFilter } from "../../../../common/hooks/useDateRangeFilter";
-import {
-  getDepartmentsAPI,
-  getIndustriesAPI,
-  getDesignationsAPI,
-} from "../../../../api/adminV1/masterdataAPI";
+import { getIndustriesAPI, getDesignationsAPI } from "../../../../api/adminV1/masterdataAPI";
 import { getStatesAPI, getCitiesAPI } from "../../../../api/adminV1/geographyAPI";
-import { WORKER_STATUSES, KYC_STATUSES } from "../../../../api/adminV1/workerAPI";
+import { WORKER_STATUSES, KYC_STATUSES, getWorkerFilterOptionsAPI } from "../../../../api/adminV1/workerAPI";
+import { readFilterOptions, onlyInUse, citiesForStates } from "../../utils/filterOptions";
 import { STATUS_META, KYC_META, statusLabel, kycLabel, formatDate, asList } from "../../utils/workerUtils";
 
 import ActionMenuPortal from "../../../../common/components/ActionMenuPortal";
@@ -52,6 +49,12 @@ import { MultiFilter, SelectFilter } from "../../components/worker/ListingFilter
 const STATUS_FILTER_OPTIONS = [{ key: "", label: "All Status" }].concat(
   WORKER_STATUSES.map((s) => ({ key: s, label: statusLabel(s) })),
 );
+
+const FACE_FILTER_OPTIONS = [
+  { key: "", label: "Face Enroll Status" },
+  { key: "true", label: "Enrolled" },
+  { key: "false", label: "Not Enrolled" },
+];
 
 const STATUS_OPTIONS = [{ key: "", label: "All Workers" }].concat(
   WORKER_STATUSES.map((s) => ({ key: s, label: `${statusLabel(s)} Workers` })),
@@ -101,21 +104,38 @@ const WorkerListing = () => {
   const statusRef = useRef(null);
   const bulkActionRef = useRef(null);
 
-  const [departments, setDepartments] = useState([]);
   const [industries, setIndustries] = useState([]);
   const [designations, setDesignations] = useState([]);
   const [states, setStates] = useState([]);
   const [cities, setCities] = useState([]);
+  // Scoped lists from /admin/workers/filter-options (only values in use).
+  // A list the endpoint doesn't return stays null and the full list is used.
+  const [inUse, setInUse] = useState({ statuses: null, kycStatuses: null, cities: null });
 
   useEffect(() => {
-    Promise.allSettled([getDepartmentsAPI(), getIndustriesAPI(), getDesignationsAPI(), getStatesAPI()]).then(
-      ([dep, ind, des, st]) => {
-        setDepartments(dep.status === "fulfilled" ? asList(dep.value) : []);
+    getWorkerFilterOptionsAPI()
+      .catch(() => null)
+      .then(async (opts) => {
+        const scoped = {
+          industries: readFilterOptions(opts, "industries"),
+          designations: readFilterOptions(opts, "designations"),
+          states: readFilterOptions(opts, "states"),
+        };
+        // Only fetch the full lists the endpoint didn't cover.
+        const [ind, des, st] = await Promise.allSettled([
+          scoped.industries || getIndustriesAPI(),
+          scoped.designations || getDesignationsAPI(),
+          scoped.states || getStatesAPI(),
+        ]);
         setIndustries(ind.status === "fulfilled" ? asList(ind.value) : []);
         setDesignations(des.status === "fulfilled" ? asList(des.value) : []);
         setStates(st.status === "fulfilled" ? asList(st.value) : []);
-      },
-    );
+        setInUse({
+          statuses: readFilterOptions(opts, "statuses", "status"),
+          kycStatuses: readFilterOptions(opts, "kycStatuses", "kycStatus"),
+          cities: readFilterOptions(opts, "cities"),
+        });
+      });
   }, []);
 
   // City options = cities of the selected states; picked cities outside them are dropped.
@@ -128,7 +148,11 @@ const WorkerListing = () => {
       setFilters((prev) => (prev.cityIds.length ? { ...prev, cityIds: [] } : prev));
       return;
     }
-    Promise.all(ids.map((id) => getCitiesAPI(id).catch(() => []))).then((lists) => {
+    const scopedCities = citiesForStates(inUse.cities, ids);
+    const load = scopedCities
+      ? Promise.resolve([scopedCities])
+      : Promise.all(ids.map((id) => getCitiesAPI(id).catch(() => [])));
+    load.then((lists) => {
       if (cancelled) return;
       const all = lists.flatMap(asList);
       const allowed = new Set(all.map((c) => c.id));
@@ -143,7 +167,7 @@ const WorkerListing = () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateKey]);
+  }, [stateKey, inUse.cities]);
 
   useEffect(() => {
     const onDown = (e) => {
@@ -211,7 +235,12 @@ const WorkerListing = () => {
   }
 
   const statusOption = STATUS_OPTIONS.find((o) => o.key === filters.status) || STATUS_OPTIONS[0];
-  const kycOptions = KYC_STATUSES.map((s) => ({ id: s, name: kycLabel(s) }));
+  const kycOptions = onlyInUse(
+    KYC_STATUSES.map((s) => ({ id: s, name: kycLabel(s) })),
+    inUse.kycStatuses,
+    "id",
+  );
+  const statusFilterOptions = onlyInUse(STATUS_FILTER_OPTIONS, inUse.statuses);
   const hasBulkActions = canToggleStatus || canExport || canDelete;
 
   return (
@@ -413,7 +442,7 @@ const WorkerListing = () => {
                 />
               </div>
               <SelectFilter
-                options={STATUS_FILTER_OPTIONS}
+                options={statusFilterOptions}
                 value={filters.status}
                 onChange={(v) => setFilter("status", v)}
               />
@@ -438,6 +467,12 @@ const WorkerListing = () => {
                 selected={filters.kycStatuses}
                 onChange={(v) => setFilter("kycStatuses", v)}
                 width="w-44"
+              />
+              <SelectFilter
+                options={FACE_FILTER_OPTIONS}
+                value={filters.faceEnrolled}
+                onChange={(v) => setFilter("faceEnrolled", v)}
+                width="w-48"
               />
               <MultiFilter
                 icon={MapPin}
@@ -712,7 +747,6 @@ const WorkerListing = () => {
         isOpen={!!viewWorkerId}
         onClose={() => setViewWorkerId(null)}
         onWorkerChanged={(updated) => (updated ? patchRow(updated) : refresh())}
-        departments={departments}
         industries={industries}
       />
       {canViewComments && (

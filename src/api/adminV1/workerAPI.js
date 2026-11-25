@@ -7,8 +7,8 @@ import javaApi, { unwrap } from "../javaApi";
 // - Worker status: REGISTERED | KYC_PENDING | ACTIVE | SUSPENDED | INACTIVE | BLACKLISTED.
 //   Changes always name an explicit target; REGISTERED/KYC_PENDING are never
 //   settable (reached only automatically). A reason is required for
-//   SUSPENDED/BLACKLISTED/INACTIVE, and entering or leaving BLACKLISTED needs a
-//   super-admin.
+//   SUSPENDED/BLACKLISTED/INACTIVE. Anyone with workers.toggle_status can
+//   blacklist or un-blacklist.
 // - Delete is a soft delete and is refused while the worker is ACTIVE.
 // - Address, bank detail, designations and skills are FULL replaces — a field
 //   left out is cleared.
@@ -33,8 +33,9 @@ export const SORTABLE_FIELDS = ["firstName", "lastName", "workerCode", "mobileNu
 const repeatParams = { indexes: null };
 
 // ---- Worker profile -------------------------------------------------------
-// params: { status[], departmentId[], industryId[], designationId[], skillId[],
-//           kycStatus[], search, registeredFrom, registeredTo (YYYY-MM-DD),
+// params: { status[], industryId[], designationId[], skillId[], stateId[], cityId[],
+//           kycStatus[], faceEnrolled (true|false; omit for all), search,
+//           registeredFrom, registeredTo (YYYY-MM-DD),
 //           page (0-based), size, sort: "field,dir" }
 // -> { content: WorkerSummaryResponse[], page, size, totalElements, totalPages, first, last }
 // WorkerSummaryResponse { id, workerCode, firstName, lastName, mobileNumber,
@@ -46,13 +47,21 @@ export const getWorkersAPI = (params = {}, options = {}) =>
 
 // WorkerResponse { id, workerCode, firstName, middleName, lastName, gender,
 //   dateOfBirth, mobileNumber, personalEmail, fatherName, workExperienceYears,
-//   departmentId (nullable), industryId, status,
+//   industryId, status,
 //   statusReason, profilePhotoUrl, designations: [{ id, name, primary }],
 //   skills: [{ id, name }], kycStatus, faceEnrollment, createdAt }
 export const getWorkerAPI = (id) => javaApi.get(`${BASE}/${id}`).then(unwrap);
 
+// Values actually in use across workers, for the listing's filter dropdowns.
+// Read it through readFilterOptions (utils/filterOptions).
+export const getWorkerFilterOptionsAPI = () => javaApi.get(`${BASE}/filter-options`).then(unwrap);
+
+// -> { uanNumber, esicNumber, ... }
+export const getWorkerStatutoryDetailAPI = (id) =>
+  javaApi.get(`${BASE}/${id}/statutory-detail`).then(unwrap);
+
 // body: { firstName, middleName?, lastName, gender, dateOfBirth?, mobileNumber,
-//   personalEmail?, fatherName?, workExperienceYears?, departmentId?, industryId?,
+//   personalEmail?, fatherName?, workExperienceYears?, industryId?,
 //   designationIds (1-3),
 //   primaryDesignationId, skillIds?, aadhaarVerificationId? }
 export const createWorkerAPI = (body) => javaApi.post(BASE, body).then(unwrap);
@@ -106,7 +115,7 @@ export const updateWorkerAddressAPI = (id, type, body) =>
   javaApi.put(`${BASE}/${id}/address/${type}`, body).then(unwrap);
 
 // ---- Bank detail -----------------------------------------------------------
-// { accountHolderName, bankName, accountNumber, ifscCode, branchName, verified, verifiedAt }
+// { accountHolderName, bankName, accountNumber, ifscCode, verified, verifiedAt }
 // accountNumber is masked unless the caller holds workers.view_bank_details.
 export const getWorkerBankDetailAPI = (id) => javaApi.get(`${BASE}/${id}/bank-detail`).then(unwrap);
 // Full replace; any change resets verified/verifiedAt.

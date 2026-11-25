@@ -60,7 +60,7 @@ const typeIcons = {
 
 const resultTypePermissionMap = {
   worker: { module: "workers", action: "view" },
-  company: { module: "companies", action: "view" },
+  company: { module: "company", action: "view" },
   agent: { module: "agent", action: "view" },
   staff: { module: "staff", action: "view" },
   vendor: { module: "vendor", action: "view" },

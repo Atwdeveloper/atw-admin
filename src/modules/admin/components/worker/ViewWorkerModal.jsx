@@ -17,15 +17,14 @@ import {
   Users,
   Activity,
   History,
-  Building2,
   Wrench,
   ShieldCheck,
   ScanFace,
   Trash2,
-  Layers,
   Star,
   Loader2,
   Clock,
+  Landmark,
 } from "lucide-react";
 import { useNavigate } from "@/lib/navigation";
 import { useState, useEffect, useCallback } from "react";
@@ -36,7 +35,9 @@ import {
   getWorkerBankDetailAPI,
   getWorkerKycAPI,
   getWorkerStatusHistoryAPI,
+  getWorkerStatutoryDetailAPI,
   removeFaceEnrollmentAPI,
+  changeWorkerStatusAPI,
 } from "../../../../api/adminV1/workerAPI";
 import { getStatesAPI, getCitiesAPI } from "../../../../api/adminV1/geographyAPI";
 import { apiError } from "../../../../api/javaApi";
@@ -51,6 +52,8 @@ import {
   formatDate,
   GENDER_OPTIONS,
   asList,
+  workerStatusActions,
+  confirmWorkerStatus,
 } from "../../utils/workerUtils";
 
 const settled = (r) => (r.status === "fulfilled" ? r.value : null);
@@ -69,12 +72,13 @@ const describeAddress = (addr, geo) => {
   return parts.length ? parts.join(", ") : null;
 };
 
-const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departments = [], industries = [] }) => {
+const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, industries = [] }) => {
   const navigate = useNavigate();
   const { hasPermission } = useAdminPermissions();
   const canEdit = hasPermission("workers", "edit");
   const canViewKyc = hasPermission("kyc", "view");
   const canEnrollFace = hasPermission("faceauth", "enroll");
+  const canChangeStatus = hasPermission("workers", "toggle_status");
 
   const [worker, setWorker] = useState(null);
   const [extras, setExtras] = useState({});
@@ -82,17 +86,20 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
   const [loading, setLoading] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [removingFace, setRemovingFace] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
+  const [brokenPhotos, setBrokenPhotos] = useState([]);
 
   const load = useCallback(async () => {
     if (!workerId) return;
     setLoading(true);
     try {
-      const [w, permanent, bank, kyc, history] = await Promise.allSettled([
+      const [w, permanent, bank, kyc, history, statutory] = await Promise.allSettled([
         getWorkerAPI(workerId),
         getWorkerAddressAPI(workerId, "PERMANENT"),
         getWorkerBankDetailAPI(workerId),
         canViewKyc ? getWorkerKycAPI(workerId) : Promise.resolve(null),
         getWorkerStatusHistoryAPI(workerId, { size: 50 }),
+        getWorkerStatutoryDetailAPI(workerId),
       ]);
       if (w.status === "rejected") throw w.reason;
       setWorker(w.value);
@@ -101,6 +108,7 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
         bank: settled(bank),
         kyc: settled(kyc),
         history: settled(history)?.content || [],
+        statutory: settled(statutory),
       };
       setExtras(next);
 
@@ -130,12 +138,34 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
       setWorker(null);
       setExtras({});
       setGeo({ states: {}, cities: {} });
+      setBrokenPhotos([]);
       load();
     }
   }, [isOpen, workerId, load]);
 
   const startFaceEnroll = async () => {
     if (await confirmFaceConsent(fullName(worker), !!worker.faceEnrollment?.enrolled)) setShowScanner(true);
+  };
+
+  // POST /status, then update the badge and re-read the history (the backend
+  // adds the entry). Errors are shown as the backend wrote them.
+  const handleStatusChange = async (action) => {
+    const confirmed = await confirmWorkerStatus(action);
+    if (!confirmed) return;
+    setChangingStatus(true);
+    try {
+      const updated = await changeWorkerStatusAPI(worker.id, action.status, confirmed.reason);
+      setWorker(updated);
+      onWorkerChanged?.(updated);
+      getWorkerStatusHistoryAPI(worker.id, { size: 50 })
+        .then((h) => setExtras((prev) => ({ ...prev, history: h?.content || [] })))
+        .catch(() => {});
+      Swal.fire({ icon: "success", title: "Status updated", timer: 1500, showConfirmButton: false });
+    } catch (error) {
+      Swal.fire({ icon: "error", title: "Could not change status", text: apiError(error).message });
+    } finally {
+      setChangingStatus(false);
+    }
   };
 
   const handleRemoveFace = async () => {
@@ -162,12 +192,14 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
     }
   };
 
-  const departmentName = asList(departments).find((d) => d.id === worker?.departmentId)?.name;
   const industryName = asList(industries).find((i) => i.id === worker?.industryId)?.name;
   const genderLabel = GENDER_OPTIONS.find((g) => g.value === worker?.gender)?.label || worker?.gender;
   const face = worker?.faceEnrollment?.enrolled ? worker.faceEnrollment : null;
-  const { permanent, bank, kyc, history = [] } = extras;
-  const headerPhoto = worker?.profilePhotoUrl || face?.photoUrl;
+  const { permanent, bank, kyc, history = [], statutory } = extras;
+  // Face reference photo first, then the profile photo; a URL that fails to
+  // load falls through to the next one.
+  const headerPhotos = [face?.photoUrl, worker?.profilePhotoUrl].filter(Boolean);
+  const headerPhoto = headerPhotos.find((url) => !brokenPhotos.includes(url));
 
   return (
     <AnimatePresence>
@@ -202,12 +234,11 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
                         <User className="w-8 h-8 text-blue-600 dark:text-blue-400" />
                         {headerPhoto && (
                           <img
+                            key={headerPhoto}
                             src={headerPhoto}
                             alt=""
                             className="absolute inset-0 w-full h-full object-cover"
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                            }}
+                            onError={() => setBrokenPhotos((prev) => [...prev, headerPhoto])}
                           />
                         )}
                       </div>
@@ -271,17 +302,7 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
                             label="Date of Registration"
                             value={formatDate(worker.createdAt, true)}
                           />
-                          <DetailItem
-                            icon={<Calendar size={16} />}
-                            label="Date of Birth"
-                            value={worker.dateOfBirth ? formatDate(worker.dateOfBirth) : "Not Provided"}
-                          />
                           <DetailItem icon={<Users size={16} />} label="Gender" value={genderLabel || "Not Provided"} />
-                          <DetailItem
-                            icon={<Users size={16} />}
-                            label="Father's Name"
-                            value={worker.fatherName || "Not Provided"}
-                          />
                           <DetailItem
                             icon={<Clock size={16} />}
                             label="Work Experience"
@@ -290,11 +311,6 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
                                 ? `${worker.workExperienceYears} ${Number(worker.workExperienceYears) === 1 ? "year" : "years"}`
                                 : "Not Provided"
                             }
-                          />
-                          <DetailItem
-                            icon={<Layers size={16} />}
-                            label="Department"
-                            value={departmentName || "Not Provided"}
                           />
                           <div className="md:col-span-2">
                             <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 mb-2">
@@ -310,7 +326,6 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
                                   >
                                     {d.primary && <Star className="w-3 h-3 fill-current" />}
                                     {d.name}
-                                    {d.primary && <span className="opacity-70">(primary)</span>}
                                   </span>
                                 ))}
                               </div>
@@ -343,6 +358,16 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
 
                       <Card title="Personal Details" icon={<Home className="text-blue-500" />}>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <DetailItem
+                            icon={<Users size={16} />}
+                            label="Father's Name"
+                            value={worker.fatherName || "Not Provided"}
+                          />
+                          <DetailItem
+                            icon={<Calendar size={16} />}
+                            label="Date of Birth"
+                            value={worker.dateOfBirth ? formatDate(worker.dateOfBirth) : "Not Provided"}
+                          />
                           {canViewKyc ? (
                             <>
                               <DetailItem
@@ -380,10 +405,48 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
                           </div>
                         </div>
                       </Card>
+
+                      <Card title="Statutory Details" icon={<Landmark className="text-emerald-500" />}>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <DetailItem
+                            icon={<Hash size={16} />}
+                            label="ESIC Number"
+                            value={statutory?.esicNumber || "Not Provided"}
+                          />
+                          <DetailItem
+                            icon={<Hash size={16} />}
+                            label="UAN Number"
+                            value={statutory?.uanNumber || "Not Provided"}
+                          />
+                        </div>
+                      </Card>
                     </div>
 
                     {/* Right column */}
                     <div className="space-y-6">
+                      {canChangeStatus && workerStatusActions(worker.status).length > 0 && (
+                        <Card title="Change Status" icon={<Activity className="text-purple-500" />}>
+                          <div className="flex flex-wrap gap-2">
+                            {workerStatusActions(worker.status).map((action) => (
+                              <button
+                                key={action.label}
+                                onClick={() => handleStatusChange(action)}
+                                disabled={changingStatus}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50 ${
+                                  action.danger
+                                    ? "text-red-600 border border-red-200 bg-white hover:bg-red-50"
+                                    : "text-white bg-green-600 hover:bg-green-700"
+                                }`}
+                              >
+                                {action.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-3">
+                            Suspend, Deactivate and Blacklist need a reason. Every change is recorded in Status History.
+                          </p>
+                        </Card>
+                      )}
                       <Card title="Face Enrollment" icon={<ScanFace className="text-teal-500" />}>
                         {face ? (
                           <div className="space-y-3">
@@ -452,11 +515,6 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
                           />
                           <DetailItem icon={<Hash size={16} />} label="IFSC Code" value={bank?.ifscCode || "Not Provided"} />
                           <DetailItem
-                            icon={<Building2 size={16} />}
-                            label="Branch"
-                            value={bank?.branchName || "Not Provided"}
-                          />
-                          <DetailItem
                             icon={<ShieldCheck size={16} />}
                             label="Verification"
                             value={bank?.verified ? `Verified ${formatDate(bank.verifiedAt)}` : "Not verified"}
@@ -477,7 +535,7 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, departmen
                                   <span className="text-xs text-slate-500">{formatDate(h.changedAt)}</span>
                                 </div>
                                 {h.reason && <p className="text-xs text-slate-600 mt-1">{h.reason}</p>}
-                                <p className="text-xs text-slate-400 mt-1">by {h.changedBy}</p>
+                                {h.changedBy && <p className="text-xs text-slate-400 mt-1">by {h.changedBy}</p>}
                               </div>
                             ))}
                           </div>

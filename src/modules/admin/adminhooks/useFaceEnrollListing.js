@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Swal from "sweetalert2";
 import { getWorkersAPI } from "../../../api/adminV1/workerAPI";
-import { getIndustriesAPI, getDesignationsAPI, getDepartmentsAPI } from "../../../api/adminV1/masterdataAPI";
+import { getIndustriesAPI, getDesignationsAPI } from "../../../api/adminV1/masterdataAPI";
 import { getStatesAPI, getCitiesAPI } from "../../../api/adminV1/geographyAPI";
 import { apiError } from "../../../api/javaApi";
 import { useDebounce } from "../../../common/hooks/useDebounce";
@@ -35,7 +35,7 @@ export const useFaceEnrollListing = () => {
   const [filters, setFilters] = useState(defaultFaceEnrollFilters);
   const debouncedFilters = useDebounce(filters, 600);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
-  const [filterOptions, setFilterOptions] = useState({ industries: [], designations: [], states: [], departments: [] });
+  const [filterOptions, setFilterOptions] = useState({ industries: [], designations: [], states: [] });
   const [cities, setCities] = useState([]);
   const abortRef = useRef(null);
 
@@ -49,14 +49,12 @@ export const useFaceEnrollListing = () => {
   };
 
   useEffect(() => {
-    Promise.allSettled([getIndustriesAPI(), getDesignationsAPI(), getStatesAPI(), getDepartmentsAPI()]).then(
-      ([ind, des, st, dep]) =>
+    Promise.allSettled([getIndustriesAPI(), getDesignationsAPI(), getStatesAPI()]).then(
+      ([ind, des, st]) =>
         setFilterOptions({
           industries: ind.status === "fulfilled" ? asList(ind.value) : [],
           designations: des.status === "fulfilled" ? asList(des.value) : [],
           states: st.status === "fulfilled" ? asList(st.value) : [],
-          // Only for the worker details modal (department name).
-          departments: dep.status === "fulfilled" ? asList(dep.value) : [],
         }),
     );
   }, []);
