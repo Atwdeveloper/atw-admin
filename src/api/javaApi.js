@@ -1,14 +1,14 @@
 import axios from "axios";
 import Cookies from "js-cookie";
 import Swal from "sweetalert2";
+import { ADMIN_API_URL } from "./adminApiUrl";
 
 // Java backend (admin panel). Every response is { success, data } or
 // { success: false, error: { code, message, fieldErrors, traceId } }.
-// Requests go to this app's own /api/v1 route handler
-// (src/app/api/v1/[...path]/route.js), which relays them to ADMIN_API_URL,
-// because the backend CORS allows neither localhost nor the deployed domain.
-// Set NEXT_PUBLIC_ADMIN_API_URL to call a backend directly instead.
-export const ADMIN_API_BASE = process.env.NEXT_PUBLIC_ADMIN_API_URL || "/api/v1";
+// The browser calls the backend directly, so the backend's CORS list must
+// include every origin this app runs on (localhost in dev, the deployed
+// domain). NEXT_PUBLIC_ADMIN_API_URL overrides the default backend.
+export const ADMIN_API_BASE = (process.env.NEXT_PUBLIC_ADMIN_API_URL || ADMIN_API_URL).replace(/\/$/, "");
 
 const cookieOptions = {
   expires: 7,

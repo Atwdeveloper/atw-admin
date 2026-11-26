@@ -33,6 +33,20 @@ import SortableHeader from "../../../../common/components/SortableHeader";
 import MasterdataThumb from "../../../../common/components/MasterdataThumb";
 import { getIndustryAPI } from "../../../../api/adminV1/masterdataAPI";
 
+// "26 Nov 2026, 10:42 am" — or "—" when the API has no value.
+const formatDateTime = (value) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 // ====================== UPDATED MODAL ======================
 const IndustryViewModal = ({
   industry,
@@ -43,12 +57,18 @@ const IndustryViewModal = ({
 }) => {
   // List rows never carry the icon URL; the single GET returns a short-lived signed one.
   const [imageUrl, setImageUrl] = useState(null);
+  const [details, setDetails] = useState(null);
   useEffect(() => {
     setImageUrl(null);
+    setDetails(null);
     if (!isOpen || !industry) return;
     let cancelled = false;
     getIndustryAPI(industry.id)
-      .then((full) => !cancelled && setImageUrl(full?.imageUrl || null))
+      .then((full) => {
+        if (cancelled) return;
+        setImageUrl(full?.imageUrl || null);
+        setDetails(full || null);
+      })
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -153,9 +173,6 @@ const IndustryViewModal = ({
                       {industry.name}
                     </p>
                     <div className="flex items-center gap-3 mt-1">
-                      <span className="text-sm text-slate-500 dark:text-slate-400">
-                        Code: {industry.code}
-                      </span>
                       {renderStatus()}
                     </div>
                   </div>
@@ -183,7 +200,14 @@ const IndustryViewModal = ({
                   >
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <DetailItem label="Industry Name" value={industry.name} />
-                      <DetailItem label="Industry Code" value={industry.code} />
+                      <DetailItem
+                        label="Created At"
+                        value={formatDateTime(details?.createdAt || industry.createdAt)}
+                      />
+                      <DetailItem
+                        label="Updated At"
+                        value={formatDateTime(details?.updatedAt || industry.updatedAt)}
+                      />
                       <DetailItem
                         label="Status"
                         value={

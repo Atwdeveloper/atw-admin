@@ -56,7 +56,8 @@ export const changeCompanyStatusAPI = (id, status, reason) =>
 export const bulkChangeCompanyStatusAPI = (ids, status, reason) =>
   javaApi.post(`${BASE}/bulk-status`, { ids, status, reason: reason || undefined }).then(unwrap);
 
-// -> paged { content: [{ id, fromStatus, toStatus, reason, changedByAdminEmail, changedAt }] }, newest first
+// -> paged { content: [{ id, fromStatus, toStatus, reason, changedBy, changedAt }] }, newest first
+//    changedBy: { id, name, userType: "ADMIN" | "SYSTEM" | "COMPANY" } — render with <ActorName>
 export const getCompanyStatusHistoryAPI = (id, params = {}) =>
   javaApi.get(`${BASE}/${id}/status-history`, { params }).then(unwrap);
 

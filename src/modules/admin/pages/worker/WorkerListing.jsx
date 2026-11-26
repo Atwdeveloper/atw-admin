@@ -50,8 +50,8 @@ const STATUS_FILTER_OPTIONS = [{ key: "", label: "All Status" }].concat(
   WORKER_STATUSES.map((s) => ({ key: s, label: statusLabel(s) })),
 );
 
+// Only the two real choices; with nothing picked the filter is off.
 const FACE_FILTER_OPTIONS = [
-  { key: "", label: "Face Enroll Status" },
   { key: "true", label: "Enrolled" },
   { key: "false", label: "Not Enrolled" },
 ];
@@ -472,7 +472,8 @@ const WorkerListing = () => {
                 options={FACE_FILTER_OPTIONS}
                 value={filters.faceEnrolled}
                 onChange={(v) => setFilter("faceEnrolled", v)}
-                width="w-48"
+                placeholder="Enrolled / Not Enrolled"
+                width="w-52"
               />
               <MultiFilter
                 icon={MapPin}

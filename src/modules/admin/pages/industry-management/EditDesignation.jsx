@@ -14,6 +14,7 @@ import {
   assignDesignationSkillCategoryAPI,
   clearDesignationSkillCategoryAPI,
   getDesignationAPI,
+  getIndustriesAPI,
   getSkillCategoriesAPI,
   removeDesignationImageAPI,
   setDesignationStatusAPI,
@@ -28,6 +29,17 @@ import Breadcrumb from "../../../../common/components/Breadcrumb";
 
 const NAME_MAX = 150;
 
+// Industry options for the Primary Industry select: active ones, plus `keep`
+// (already-assigned industries) even if inactive now.
+const industryOptions = (list, keep) => {
+  const keepIds = new Set(keep.map((i) => i.id));
+  const options = (list || []).filter((i) => i.status === "ACTIVE" || keepIds.has(i.id));
+  keep.forEach((i) => {
+    if (!options.some((o) => o.id === i.id)) options.push(i);
+  });
+  return options;
+};
+
 const EditDesignation = () => {
   const { id: industryId, designation_id } = useParams();
   const navigate = useNavigate();
@@ -38,12 +50,14 @@ const EditDesignation = () => {
 
   const [formData, setFormData] = useState({
     name: "",
+    primaryIndustryId: "",
     skillCategoryId: "",
     status: "ACTIVE",
     image: null,
   });
   // The designation as last loaded — what "changed" is measured against.
   const [original, setOriginal] = useState(null);
+  const [industries, setIndustries] = useState([]);
   const [imagePreview, setImagePreview] = useState(null);
   const [removeImage, setRemoveImage] = useState(false);
   const [errors, setErrors] = useState({});
@@ -57,11 +71,16 @@ const EditDesignation = () => {
   const loadDesignation = useCallback(async () => {
     try {
       setLoading(true);
-      const [designation, categories] = await Promise.all([
+      const [designation, categories, industryList] = await Promise.all([
         getDesignationAPI(designation_id),
         // Needs skill_category.view; without it only the assigned id is known.
         getSkillCategoriesAPI().catch(() => []),
+        getIndustriesAPI().catch(() => []),
       ]);
+      const assigned = designation.industries || [];
+      setIndustries(
+        industryOptions(industryList, assigned.length ? assigned : [{ id: industryId, name: industryName }]),
+      );
       // Active categories, plus the assigned one even if it's been deactivated
       setSkillCategories(
         (categories || []).filter(
@@ -71,6 +90,8 @@ const EditDesignation = () => {
       setOriginal(designation);
       setFormData({
         name: designation.name || "",
+        // industries[] is sorted primary-first and flags the primary one.
+        primaryIndustryId: assigned.find((i) => i.primary)?.id || assigned[0]?.id || industryId || "",
         skillCategoryId: designation.skillCategoryId || "",
         status: designation.status || "ACTIVE",
         image: null,
@@ -87,7 +108,7 @@ const EditDesignation = () => {
     } finally {
       setLoading(false);
     }
-  }, [designation_id, listingPath, navigate]);
+  }, [designation_id, industryId, industryName, listingPath, navigate]);
 
   useEffect(() => {
     if (designation_id) loadDesignation();
@@ -115,8 +136,8 @@ const EditDesignation = () => {
       [name]: value,
     }));
 
-    if (name === "name") {
-      setErrors((prev) => ({ ...prev, name: "" }));
+    if (name === "name" || name === "primaryIndustryId") {
+      setErrors((prev) => ({ ...prev, [name]: "" }));
     }
   };
 
@@ -135,6 +156,10 @@ const EditDesignation = () => {
       newErrors.name = `Designation name must be at most ${NAME_MAX} characters`;
     }
 
+    if (!formData.primaryIndustryId) {
+      newErrors.primaryIndustryId = "Select the primary industry";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -145,17 +170,17 @@ const EditDesignation = () => {
 
     setSubmitting(true);
     try {
-      // Full replace of name + industries; keep every industry it already belongs to.
-      const industryIds = (original?.industries || []).map((i) => i.id);
+      // Full replace of industries: keep every industry it already belongs to,
+      // plus the chosen primary (which must be one of them).
+      const industryIds = [
+        ...new Set(
+          [...(original?.industries || []).map((i) => i.id), industryId, formData.primaryIndustryId].filter(Boolean),
+        ),
+      ];
       await updateDesignationAPI(designation_id, {
         name: formData.name.trim(),
-        industryIds: industryIds.length ? industryIds : [industryId],
-        // Keep the existing primary industry (this page can't change it).
-        primaryIndustryId:
-          original?.primaryIndustryId ||
-          (original?.industries || []).find((i) => i.primary)?.id ||
-          industryIds[0] ||
-          industryId,
+        industryIds,
+        primaryIndustryId: formData.primaryIndustryId,
       });
     } catch (error) {
       const { code, message, fieldErrors } = apiError(error, "Failed to update designation");
@@ -249,8 +274,6 @@ const EditDesignation = () => {
     );
   }
 
-  const otherIndustries = (original?.industries || []).filter((i) => i.id !== industryId);
-
   return (
     <motion.div
       className="flex-1 bg-gray-50 p-4"
@@ -299,10 +322,34 @@ const EditDesignation = () => {
             {errors.name && (
               <p className="mt-1 text-sm text-red-600">{errors.name}</p>
             )}
-            {otherIndustries.length > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
-                Also part of: {otherIndustries.map((i) => i.name).join(", ")}
-              </p>
+          </div>
+
+          <div>
+            <label
+              htmlFor="primaryIndustryId"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              Primary Industry <span className="text-red-500">*</span>
+            </label>
+            <select
+              id="primaryIndustryId"
+              name="primaryIndustryId"
+              value={formData.primaryIndustryId}
+              onChange={handleChange}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                errors.primaryIndustryId ? "border-red-500" : "border-gray-300"
+              }`}
+            >
+              <option value="">Select primary industry</option>
+              {industries.map((industry) => (
+                <option key={industry.id} value={industry.id}>
+                  {industry.name}
+                  {industry.status && industry.status !== "ACTIVE" ? " (inactive)" : ""}
+                </option>
+              ))}
+            </select>
+            {errors.primaryIndustryId && (
+              <p className="mt-1 text-sm text-red-600">{errors.primaryIndustryId}</p>
             )}
           </div>
 

@@ -152,15 +152,60 @@ const EffectiveRateLookup = ({ states, skillCategories }) => {
   );
 };
 
-// ====================== RATE HISTORY ======================
+// ====================== RATE PHASE ======================
+// Minimum wage versions are effective-dated, so an ACTIVE version is shown by
+// where it sits in time rather than as "Active":
+//   Upcoming - effectiveFrom is after today
+//   Current  - the latest ACTIVE version already in force (effectiveFrom <= today)
+//   Past     - an older ACTIVE version, replaced by the current one
+// An INACTIVE (retracted) version stays "Inactive".
+const PHASE_META = {
+  CURRENT: { label: "Current", className: "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400" },
+  UPCOMING: { label: "Upcoming", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400" },
+  PAST: { label: "Past", className: "bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300" },
+  INACTIVE: { label: "Inactive", className: "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400" },
+};
+
+// { [versionId]: "CURRENT" | "UPCOMING" | "PAST" | "INACTIVE" } for one
+// state + skill category. effectiveFrom is YYYY-MM-DD, so strings compare.
+const phasesOf = (versions, asOf = today()) => {
+  const phases = {};
+  const inForce = versions
+    .filter((v) => v.status === "ACTIVE" && v.effectiveFrom <= asOf)
+    .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1));
+  const currentId = inForce[0]?.id;
+  versions.forEach((v) => {
+    if (v.status !== "ACTIVE") phases[v.id] = "INACTIVE";
+    else if (v.effectiveFrom > asOf) phases[v.id] = "UPCOMING";
+    else phases[v.id] = v.id === currentId ? "CURRENT" : "PAST";
+  });
+  return phases;
+};
+
+// Phase of a single version when the history isn't loaded (yet): by date only.
+const fallbackPhase = (rate) => {
+  if (rate.status !== "ACTIVE") return "INACTIVE";
+  return rate.effectiveFrom > today() ? "UPCOMING" : "CURRENT";
+};
+
+const PhaseBadge = ({ phase }) => {
+  const meta = PHASE_META[phase] || PHASE_META.INACTIVE;
+  return (
+    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${meta.className}`}>
+      {meta.label}
+    </span>
+  );
+};
+
 // Every version for one state + skill category (newest first), from the
 // history endpoint filtered to that pair.
-const RateHistory = ({ rate }) => {
+const useRateHistory = (rate) => {
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    setVersions([]);
     if (!rate?.stateId || !rate?.skillCategoryId) return;
     let cancelled = false;
     setLoading(true);
@@ -180,85 +225,63 @@ const RateHistory = ({ rate }) => {
     };
   }, [rate?.stateId, rate?.skillCategoryId]);
 
-  return (
-    <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-6 mt-4">
-      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4 flex items-center">
-        <History className="text-amber-500" />
-        <span className="ml-2">Rate History</span>
-        {loading && (
-          <span className="ml-3 w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
-        )}
-      </h4>
-      {error ? (
-        <p className="text-sm text-red-600">{error}</p>
-      ) : !loading && versions.length === 0 ? (
-        <p className="text-sm text-slate-500">No versions found.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-slate-600">
-                <th className="py-2 pr-4 font-medium">Effective From</th>
-                <th className="py-2 pr-4 font-medium">Min. Daily Rate</th>
-                <th className="py-2 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {versions.map((v) => {
-                const current = v.id === rate.id;
-                return (
-                  <tr
-                    key={v.id}
-                    className={`border-b border-slate-100 dark:border-slate-700 ${
-                      current ? "font-semibold text-blue-700 dark:text-blue-300" : "text-slate-800 dark:text-slate-200"
-                    }`}
-                  >
-                    <td className="py-2 pr-4 whitespace-nowrap">
-                      {formatDate(v.effectiveFrom)}
-                      {current && <span className="ml-2 text-xs font-medium">(current)</span>}
-                    </td>
-                    <td className="py-2 pr-4">{v.minDailyRate}</td>
-                    <td className="py-2">
-                      <span
-                        className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                          v.status === "ACTIVE" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {v.status === "ACTIVE" ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
+  return { versions, loading, error };
 };
+
+// ====================== RATE HISTORY ======================
+const RateHistory = ({ rate, versions, loading, error, phases }) => (
+  <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-6 mt-4">
+    <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4 flex items-center">
+      <History className="text-amber-500" />
+      <span className="ml-2">Rate History</span>
+      {loading && (
+        <span className="ml-3 w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
+      )}
+    </h4>
+    {error ? (
+      <p className="text-sm text-red-600">{error}</p>
+    ) : !loading && versions.length === 0 ? (
+      <p className="text-sm text-slate-500">No versions found.</p>
+    ) : (
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-slate-600">
+              <th className="py-2 pr-4 font-medium">Effective From</th>
+              <th className="py-2 pr-4 font-medium">Min. Daily Rate</th>
+              <th className="py-2 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {versions.map((v) => {
+              const viewing = v.id === rate.id;
+              return (
+                <tr
+                  key={v.id}
+                  className={`border-b border-slate-100 dark:border-slate-700 ${
+                    viewing ? "font-semibold text-blue-700 dark:text-blue-300" : "text-slate-800 dark:text-slate-200"
+                  }`}
+                >
+                  <td className="py-2 pr-4 whitespace-nowrap">{formatDate(v.effectiveFrom)}</td>
+                  <td className="py-2 pr-4">{v.minDailyRate}</td>
+                  <td className="py-2">
+                    <PhaseBadge phase={phases[v.id] || fallbackPhase(v)} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+);
 
 // ====================== VIEW MODAL ======================
 const MinimumWageViewModal = ({ rate, isOpen, onClose, onEdit, detailsLoading }) => {
-  const renderStatus = () => {
-    const isActive = rate.status === "ACTIVE";
-    return (
-      <span
-        className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${
-          isActive
-            ? "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400"
-            : "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400"
-        }`}
-      >
-        {isActive ? (
-          <CheckCircle className="w-3 h-3" />
-        ) : (
-          <XCircle className="w-3 h-3" />
-        )}
-        {isActive ? "Active" : "Inactive"}
-      </span>
-    );
-  };
+  const history = useRateHistory(isOpen ? rate : null);
+  const phases = phasesOf(history.versions);
+  const phase = rate ? phases[rate.id] || fallbackPhase(rate) : null;
 
   return (
     <AnimatePresence>
@@ -293,7 +316,7 @@ const MinimumWageViewModal = ({ rate, isOpen, onClose, onEdit, detailsLoading })
                       <span className="text-sm text-slate-500 dark:text-slate-400">
                         Rate: {rate.minDailyRate}/day
                       </span>
-                      {renderStatus()}
+                      <PhaseBadge phase={phase} />
                     </div>
                   </div>
                 </div>
@@ -347,7 +370,7 @@ const MinimumWageViewModal = ({ rate, isOpen, onClose, onEdit, detailsLoading })
                       Status
                     </span>
                     <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {rate.status === "ACTIVE" ? "Active" : "Inactive"}
+                      {PHASE_META[phase]?.label}
                     </span>
                   </div>
                   <div className="flex flex-col gap-1">
@@ -360,7 +383,7 @@ const MinimumWageViewModal = ({ rate, isOpen, onClose, onEdit, detailsLoading })
                   </div>
                 </div>
               </div>
-              <RateHistory rate={rate} />
+              <RateHistory rate={rate} phases={phases} {...history} />
             </div>
 
             <div className="sticky bottom-0 bg-white dark:bg-slate-800 px-6 py-4 border-t border-slate-200 dark:border-slate-700 rounded-b-2xl">

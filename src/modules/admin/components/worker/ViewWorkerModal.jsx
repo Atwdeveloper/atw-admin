@@ -8,7 +8,6 @@ import {
   Phone,
   MapPin,
   Calendar,
-  Hash,
   Building,
   Briefcase,
   FileText,
@@ -25,6 +24,11 @@ import {
   Loader2,
   Clock,
   Landmark,
+  IdCard,
+  Fingerprint,
+  FileCheck,
+  HeartPulse,
+  BadgeCheck,
 } from "lucide-react";
 import { useNavigate } from "@/lib/navigation";
 import { useState, useEffect, useCallback } from "react";
@@ -43,6 +47,7 @@ import { getStatesAPI, getCitiesAPI } from "../../../../api/adminV1/geographyAPI
 import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import WorkerFaceScanner, { confirmFaceConsent } from "./WorkerFaceScanner";
+import ActorName from "../ActorName";
 import {
   STATUS_META,
   KYC_META,
@@ -296,7 +301,7 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, industrie
                       <Card title="Basic Information" icon={<User className="text-indigo-500" />}>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <DetailItem icon={<User size={16} />} label="Full Name" value={fullName(worker)} />
-                          <DetailItem icon={<Hash size={16} />} label="Worker Code" value={worker.workerCode} />
+                          <DetailItem icon={<IdCard size={16} />} label="Worker Code" value={worker.workerCode} />
                           <DetailItem
                             icon={<Calendar size={16} />}
                             label="Date of Registration"
@@ -371,7 +376,7 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, industrie
                           {canViewKyc ? (
                             <>
                               <DetailItem
-                                icon={<Hash size={16} />}
+                                icon={<Fingerprint size={16} />}
                                 label="Aadhaar Number"
                                 value={kyc?.aadhaarNumber || "Not Provided"}
                               />
@@ -386,7 +391,7 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, industrie
                                 value={kyc?.verifiedAt ? formatDate(kyc.verifiedAt, true) : "Not verified"}
                               />
                               <DetailItem
-                                icon={<Hash size={16} />}
+                                icon={<FileCheck size={16} />}
                                 label="Verification Reference"
                                 value={kyc?.verificationRef || "—"}
                               />
@@ -409,12 +414,12 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, industrie
                       <Card title="Statutory Details" icon={<Landmark className="text-emerald-500" />}>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <DetailItem
-                            icon={<Hash size={16} />}
+                            icon={<HeartPulse size={16} />}
                             label="ESIC Number"
                             value={statutory?.esicNumber || "Not Provided"}
                           />
                           <DetailItem
-                            icon={<Hash size={16} />}
+                            icon={<BadgeCheck size={16} />}
                             label="UAN Number"
                             value={statutory?.uanNumber || "Not Provided"}
                           />
@@ -513,7 +518,7 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, industrie
                             label="Account Number"
                             value={bank?.accountNumber || "Not Provided"}
                           />
-                          <DetailItem icon={<Hash size={16} />} label="IFSC Code" value={bank?.ifscCode || "Not Provided"} />
+                          <DetailItem icon={<Landmark size={16} />} label="IFSC Code" value={bank?.ifscCode || "Not Provided"} />
                           <DetailItem
                             icon={<ShieldCheck size={16} />}
                             label="Verification"
@@ -535,7 +540,11 @@ const WorkerViewModal = ({ workerId, isOpen, onClose, onWorkerChanged, industrie
                                   <span className="text-xs text-slate-500">{formatDate(h.changedAt)}</span>
                                 </div>
                                 {h.reason && <p className="text-xs text-slate-600 mt-1">{h.reason}</p>}
-                                {h.changedBy && <p className="text-xs text-slate-400 mt-1">by {h.changedBy}</p>}
+                                {h.changedBy && (
+                                  <p className="text-xs text-slate-400 mt-1">
+                                    <ActorName actor={h.changedBy} prefix="by " />
+                                  </p>
+                                )}
                               </div>
                             ))}
                           </div>

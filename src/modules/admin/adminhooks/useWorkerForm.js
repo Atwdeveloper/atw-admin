@@ -73,6 +73,8 @@ const emptyForm = {
   // Bank detail
   bankName: "",
   accountNumber: "",
+  // Form-only (never sent): must match accountNumber.
+  confirmAccountNumber: "",
   ifscCode: "",
 };
 
@@ -196,6 +198,8 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
         bankName: bank?.bankName || "",
         // A masked number can't be sent back — the field starts empty instead.
         accountNumber: isMasked(bank?.accountNumber) ? "" : bank?.accountNumber || "",
+        // A saved, visible number counts as already confirmed.
+        confirmAccountNumber: isMasked(bank?.accountNumber) ? "" : bank?.accountNumber || "",
         ifscCode: bank?.ifscCode || "",
       };
       skipSkillPrune.current = true;
@@ -395,6 +399,8 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
     if (form.ifscCode && !ifscPattern.test(form.ifscCode)) e.ifscCode = "Invalid IFSC code (e.g. SBIN0001234)";
     if (form.accountNumber && !/^\d{6,18}$/.test(form.accountNumber))
       e.accountNumber = "Account number must be 6-18 digits";
+    if (form.accountNumber && form.confirmAccountNumber !== form.accountNumber)
+      e.confirmAccountNumber = "Account numbers don't match";
     // The bank row is a full replace: changing it without the full account
     // number would wipe the number on file.
     if (isEdit && changed.bank && !form.accountNumber && onFile.accountNumber)
@@ -622,6 +628,8 @@ export const useWorkerForm = ({ mode = "create", workerId, canViewKyc, canSubmit
     }
 
     if (!/^\d{6,18}$/.test(form.accountNumber)) e.accountNumber = "Enter the full account number to verify";
+    else if (form.confirmAccountNumber !== form.accountNumber)
+      e.confirmAccountNumber = "Account numbers don't match";
     if (!ifscPattern.test(form.ifscCode)) e.ifscCode = "Enter a valid IFSC code to verify";
     if (!accountHolderName) e.firstName = "Enter the worker's name to verify the account holder";
     if (Object.keys(e).length) {

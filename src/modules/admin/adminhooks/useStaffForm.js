@@ -25,14 +25,18 @@ export const CORE_FIELDS = ["fullName", "email", "username", "phone", "roleIds"]
 export const PROFILE_FIELDS = ["dateOfBirth", "gender"];
 export const ADDRESS_FIELDS = ["line1", "line2", "stateId", "cityId", "pincode"];
 export const KYC_FIELDS = ["aadhaarNumber", "panNumber", "uanNumber", "pfNumber", "esicNumber"];
-export const BANK_FIELDS = ["accountHolderName", "bankName", "accountNumber", "ifscCode", "branchName"];
+export const BANK_FIELDS = ["accountHolderName", "bankName", "accountNumber", "ifscCode"];
 
-const EMPTY = Object.fromEntries(
-  [...CORE_FIELDS, ...PROFILE_FIELDS, ...ADDRESS_FIELDS, ...KYC_FIELDS, ...BANK_FIELDS].map((f) => [
-    f,
-    f === "roleIds" ? [] : "",
-  ]),
-);
+// confirmAccountNumber is form-only (never sent): it must match accountNumber.
+const EMPTY = {
+  ...Object.fromEntries(
+    [...CORE_FIELDS, ...PROFILE_FIELDS, ...ADDRESS_FIELDS, ...KYC_FIELDS, ...BANK_FIELDS].map((f) => [
+      f,
+      f === "roleIds" ? [] : "",
+    ]),
+  ),
+  confirmAccountNumber: "",
+};
 
 const isMasked = (value) => typeof value === "string" && value.includes("*");
 const trimOrNull = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
@@ -75,6 +79,8 @@ const validate = (form, { mode, maskedKyc, replaceKyc, savedAccountMasked, bankC
     e.ifscCode = "IFSC format: ABCD0123456";
   if (form.accountNumber && !/^\d{9,18}$/.test(form.accountNumber.trim()))
     e.accountNumber = "Account number must be 9–18 digits";
+  if (form.accountNumber.trim() && form.confirmAccountNumber.trim() !== form.accountNumber.trim())
+    e.confirmAccountNumber = "Account numbers don't match";
   // The saved account number is masked, and a bank save replaces every field.
   if (bankChanged && savedAccountMasked && !form.accountNumber.trim())
     e.accountNumber = "Re-enter the account number to save bank changes";
@@ -188,8 +194,9 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
           accountHolderName: bank?.accountHolderName || "",
           bankName: bank?.bankName || "",
           accountNumber: accountMasked ? "" : bank?.accountNumber || "",
+          // A saved, visible number counts as already confirmed.
+          confirmAccountNumber: accountMasked ? "" : bank?.accountNumber || "",
           ifscCode: bank?.ifscCode || "",
-          branchName: bank?.branchName || "",
         };
 
         setStaff(s);
@@ -336,7 +343,6 @@ export const useStaffForm = ({ mode = "create", staffId } = {}) => {
               bankName: trimOrNull(form.bankName),
               accountNumber: trimOrNull(form.accountNumber),
               ifscCode: trimOrNull(form.ifscCode.toUpperCase()),
-              branchName: trimOrNull(form.branchName),
             }),
         ],
       ].filter(Boolean);

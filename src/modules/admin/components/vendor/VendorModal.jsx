@@ -13,12 +13,12 @@ import {
   XCircle,
   Calendar,
   Clock,
-  Hash,
   Building2,
   ClipboardList,
   FileText,
   Shield,
   User,
+  IdCard,
 } from "lucide-react";
 
 const VendorModal = ({ vendor, isOpen, onClose, onEdit, onDelete }) => {
@@ -115,7 +115,7 @@ const VendorModal = ({ vendor, isOpen, onClose, onEdit, onDelete }) => {
                   >
                     <div className="space-y-4">
                       <DetailItem
-                        icon={<Hash className="w-4 h-4" />}
+                        icon={<IdCard className="w-4 h-4" />}
                         label="Vendor ID"
                         value={vendor.id}
                       />

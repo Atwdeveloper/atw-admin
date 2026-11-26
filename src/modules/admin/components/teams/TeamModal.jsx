@@ -10,10 +10,10 @@ import {
   Phone,
   Building,
   Calendar,
-  Hash,
   UserCircle,
   CheckCircle,
   Clock,
+  Tag,
 } from "lucide-react";
 
 const TeamModal = ({ team, isOpen, onClose }) => {
@@ -55,7 +55,7 @@ const TeamModal = ({ team, isOpen, onClose }) => {
               <div>
                 <h2 className="text-2xl font-bold">{team.name}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <Hash className="w-4 h-4" />
+                  <Tag className="w-4 h-4" />
                   <span className="font-mono">
                     {team.team_code ||
                       `T-${team.id.toString().padStart(5, "0")}`}

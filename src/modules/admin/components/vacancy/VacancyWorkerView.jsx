@@ -9,10 +9,10 @@ import {
   Briefcase,
   CreditCard,
   Shield,
-  Hash,
   Home,
   FileText,
   Star,
+  IdCard,
 } from "lucide-react";
 
 const VacancyWorkerView = ({ worker, isOpen, onClose }) => {
@@ -80,7 +80,7 @@ const VacancyWorkerView = ({ worker, isOpen, onClose }) => {
                 </h1>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                   <div className="flex items-center gap-2">
-                    <Hash size={16} className="text-gray-400" />
+                    <IdCard size={16} className="text-gray-400" />
                     <span className="text-gray-600">
                       Worker Code: {worker.workerCode}
                     </span>

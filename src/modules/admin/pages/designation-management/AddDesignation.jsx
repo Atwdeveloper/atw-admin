@@ -20,13 +20,15 @@ import { apiError } from "../../../../api/javaApi";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import Breadcrumb from "../../../../common/components/Breadcrumb";
+import MultiSelectDropdown from "../../../../common/components/MultiSelectDropdown";
+import PrimaryIndustryPicker, { nextPrimary } from "../../components/designation/PrimaryIndustryPicker";
 
 const AddDesignation = () => {
   const navigate = useNavigate();
   const { hasPermission, loading: permissionsLoading } = useAdminPermissions();
   const [formData, setFormData] = useState({
     name: "",
-    // One industry per designation; it's sent as both industryIds and primaryIndustryId.
+    industry_ids: [],
     primary_industry_id: "",
     skill_category_id: "",
     image: null,
@@ -92,10 +94,13 @@ const AddDesignation = () => {
     }
   };
 
-  const handleIndustryChange = (e) => {
-    const primaryIndustryId = e.target.value;
-    setFormData((prev) => ({ ...prev, primary_industry_id: primaryIndustryId }));
-    setErrors((prev) => ({ ...prev, primary_industry_id: "" }));
+  const handleIndustriesChange = (industryIds) => {
+    setFormData((prev) => ({
+      ...prev,
+      industry_ids: industryIds,
+      primary_industry_id: nextPrimary(prev.primary_industry_id, industryIds),
+    }));
+    setErrors((prev) => ({ ...prev, industry_ids: "", primary_industry_id: "" }));
   };
 
   const validate = () => {
@@ -109,7 +114,9 @@ const AddDesignation = () => {
       newErrors.name = "Special characters are not allowed";
     }
 
-    if (!formData.primary_industry_id) {
+    if (!formData.industry_ids || formData.industry_ids.length === 0) {
+      newErrors.industry_ids = "Select at least one industry";
+    } else if (!formData.industry_ids.includes(formData.primary_industry_id)) {
       newErrors.primary_industry_id = "Select the primary industry";
     }
 
@@ -126,7 +133,7 @@ const AddDesignation = () => {
     try {
       created = await createDesignationAPI({
         name: formData.name.trim(),
-        industryIds: [formData.primary_industry_id],
+        industryIds: formData.industry_ids,
         primaryIndustryId: formData.primary_industry_id,
         skillCategoryId: formData.skill_category_id || null,
       });
@@ -138,8 +145,8 @@ const AddDesignation = () => {
         setErrors((prev) => ({
           ...prev,
           name: fieldErrors.name || prev.name,
-          primary_industry_id:
-            fieldErrors.primaryIndustryId || fieldErrors.industryIds || prev.primary_industry_id,
+          industry_ids: fieldErrors.industryIds || prev.industry_ids,
+          primary_industry_id: fieldErrors.primaryIndustryId || prev.primary_industry_id,
         }));
       } else {
         Swal.fire({ icon: "error", title: "Failed to add designation", text: message });
@@ -254,34 +261,34 @@ const AddDesignation = () => {
           </div>
 
           <div>
-            <label
-              htmlFor="primary_industry_id"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
-              Primary Industry <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Industries <span className="text-red-500">*</span>
             </label>
-            <select
-              id="primary_industry_id"
-              name="primary_industry_id"
-              value={formData.primary_industry_id}
-              onChange={handleIndustryChange}
-              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.primary_industry_id ? "border-red-500" : "border-gray-300"
-              }`}
-            >
-              <option value="">Select primary industry</option>
-              {industries.map((industry) => (
-                <option key={industry.id} value={industry.id}>
-                  {industry.name}
-                </option>
-              ))}
-            </select>
-            {errors.primary_industry_id && (
+            <MultiSelectDropdown
+              options={industries}
+              selectedIds={formData.industry_ids}
+              onChange={handleIndustriesChange}
+              placeholder="Select industries"
+              error={!!errors.industry_ids}
+              showSelectAll
+            />
+            {errors.industry_ids && (
               <p className="mt-1 text-sm text-red-600">
-                {errors.primary_industry_id}
+                {errors.industry_ids}
               </p>
             )}
           </div>
+
+          <PrimaryIndustryPicker
+            industries={industries}
+            selectedIds={formData.industry_ids}
+            primaryId={formData.primary_industry_id}
+            onChange={(primaryId) => {
+              setFormData((prev) => ({ ...prev, primary_industry_id: primaryId }));
+              setErrors((prev) => ({ ...prev, primary_industry_id: "" }));
+            }}
+            error={errors.primary_industry_id}
+          />
 
           <div>
             <label

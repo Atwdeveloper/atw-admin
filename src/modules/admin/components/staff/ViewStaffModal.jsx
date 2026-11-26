@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "@/lib/navigation";
-import { Building2, Edit2, FileText, Lock, MapPin, Shield, User, X } from "lucide-react";
+import { Building2, Edit2, FileText, Landmark, Lock, MapPin, Shield, User, X } from "lucide-react";
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import {
   getStaffAddressAPI,
@@ -13,17 +13,26 @@ import {
 } from "../../../../api/adminV1/staffAPI";
 import { getCitiesAPI, getStatesAPI } from "../../../../api/adminV1/geographyAPI";
 
-// The address only carries ids; look up the names for display.
+// A plain array, or a page's content, or [] for anything else.
+const asList = (value) =>
+  Array.isArray(value) ? value : Array.isArray(value?.content) ? value.content : [];
+
+// The address only carries ids; look up the names for display. Never throws —
+// a failed lookup just leaves the names blank.
 const resolvePlaceNames = async (address) => {
   if (!address?.stateId) return {};
-  const [states, cities] = await Promise.all([
-    getStatesAPI().catch(() => []),
-    getCitiesAPI(address.stateId).catch(() => []),
-  ]);
-  return {
-    stateName: states.find((s) => s.id === address.stateId)?.name,
-    cityName: cities.find((c) => c.id === address.cityId)?.name,
-  };
+  try {
+    const [states, cities] = await Promise.all([
+      getStatesAPI().catch(() => []),
+      getCitiesAPI(address.stateId).catch(() => []),
+    ]);
+    return {
+      stateName: asList(states).find((s) => s.id === address.stateId)?.name,
+      cityName: asList(cities).find((c) => c.id === address.cityId)?.name,
+    };
+  } catch {
+    return {};
+  }
 };
 
 const formatDate = (value, withTime = false) =>
@@ -83,12 +92,14 @@ const StaffViewModal = ({ staff, isOpen, onClose }) => {
       getStaffAddressAPI(staff.id).catch(() => null),
       getStaffKycAPI(staff.id).catch(() => null),
       getStaffBankAPI(staff.id).catch(() => null),
-    ]).then(async ([profile, address, kyc, bank]) => {
-      const places = await resolvePlaceNames(address);
-      if (cancelled) return;
-      setDetails({ profile, address, places, kyc, bank });
-      setLoading(false);
-    });
+    ])
+      .then(async ([profile, address, kyc, bank]) => {
+        const places = await resolvePlaceNames(address);
+        if (!cancelled) setDetails({ profile, address, places, kyc, bank });
+      })
+      // Show what's on the staff row rather than spinning forever.
+      .catch(() => !cancelled && setDetails({}))
+      .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
@@ -98,7 +109,7 @@ const StaffViewModal = ({ staff, isOpen, onClose }) => {
 
   const { profile, address, places, kyc, bank } = details || {};
   const kycMasked = kyc && Object.values(kyc).some((v) => typeof v === "string" && v.includes("*"));
-  const bankMasked = bank?.accountNumber?.includes("*");
+  const bankMasked = typeof bank?.accountNumber === "string" && bank.accountNumber.includes("*");
   const active = staff.status === "ACTIVE";
 
   return (
@@ -201,8 +212,11 @@ const StaffViewModal = ({ staff, isOpen, onClose }) => {
                 <Section icon={FileText} title="KYC" note={kycMasked ? maskedNote : null}>
                   <Row label="Aadhaar" value={kyc?.aadhaarNumber} mono />
                   <Row label="PAN" value={kyc?.panNumber} mono />
-                  <Row label="UAN" value={kyc?.uanNumber} mono />
                   <Row label="PF" value={kyc?.pfNumber} mono />
+                </Section>
+
+                <Section icon={Landmark} title="Statutory Details" note={kycMasked ? maskedNote : null}>
+                  <Row label="UAN" value={kyc?.uanNumber} mono />
                   <Row label="ESIC" value={kyc?.esicNumber} mono />
                 </Section>
 
@@ -213,7 +227,6 @@ const StaffViewModal = ({ staff, isOpen, onClose }) => {
                       <Row label="Bank" value={bank?.bankName} />
                       <Row label="Account number" value={bank?.accountNumber} mono />
                       <Row label="IFSC" value={bank?.ifscCode} mono />
-                      <Row label="Branch" value={bank?.branchName} />
                     </div>
                   </Section>
                 </div>

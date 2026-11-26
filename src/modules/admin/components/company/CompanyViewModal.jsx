@@ -7,7 +7,6 @@ import {
   Mail,
   User,
   Calendar,
-  Hash,
   FileText,
   Activity,
   History,
@@ -16,6 +15,9 @@ import {
   MapPin,
   Loader2,
   Factory,
+  CreditCard,
+  Barcode,
+  FileCheck,
 } from "lucide-react";
 import { useNavigate } from "@/lib/navigation";
 import { useState, useEffect, useCallback } from "react";
@@ -37,6 +39,7 @@ import {
   confirmCompanyStatus,
 } from "../../utils/companyUtils";
 import CompanyAddressList from "./CompanyAddressList";
+import ActorName from "../ActorName";
 
 const CompanyViewModal = ({ companyId, isOpen, onClose, onCompanyChanged, industries = [] }) => {
   const navigate = useNavigate();
@@ -222,7 +225,7 @@ const CompanyViewModal = ({ companyId, isOpen, onClose, onCompanyChanged, indust
                       <Card title="Company Information" icon={<Building2 className="text-indigo-500" />}>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <DetailItem icon={<Building2 size={16} />} label="Company Name" value={company.name} />
-                          <DetailItem icon={<Hash size={16} />} label="Company Code" value={company.companyCode} />
+                          <DetailItem icon={<Barcode size={16} />} label="Company Code" value={company.companyCode} />
                           <DetailItem icon={<Factory size={16} />} label="Industry" value={industryName || "—"} />
                           <DetailItem
                             icon={<Calendar size={16} />}
@@ -240,7 +243,7 @@ const CompanyViewModal = ({ companyId, isOpen, onClose, onCompanyChanged, indust
                             value={company.gstNumber || "Not Provided"}
                           />
                           <DetailItem
-                            icon={<FileText size={16} />}
+                            icon={<CreditCard size={16} />}
                             label="PAN Number"
                             value={company.panNumber || "Not Provided"}
                           />
@@ -250,7 +253,7 @@ const CompanyViewModal = ({ companyId, isOpen, onClose, onCompanyChanged, indust
                             value={company.gstVerifiedAt ? formatDate(company.gstVerifiedAt, true) : "Not verified"}
                           />
                           <DetailItem
-                            icon={<Hash size={16} />}
+                            icon={<FileCheck size={16} />}
                             label="Verification Reference"
                             value={company.gstVerificationRef || "—"}
                           />
@@ -314,8 +317,10 @@ const CompanyViewModal = ({ companyId, isOpen, onClose, onCompanyChanged, indust
                                   <span className="text-xs text-slate-500 whitespace-nowrap">{formatDate(h.changedAt)}</span>
                                 </div>
                                 {h.reason && <p className="text-xs text-slate-600 mt-1">{h.reason}</p>}
-                                {h.changedByAdminEmail && (
-                                  <p className="text-xs text-slate-400 mt-1">by {h.changedByAdminEmail}</p>
+                                {(h.changedBy || h.changedByAdminEmail) && (
+                                  <p className="text-xs text-slate-400 mt-1">
+                                    <ActorName actor={h.changedBy || h.changedByAdminEmail} prefix="by " />
+                                  </p>
                                 )}
                               </div>
                             ))}

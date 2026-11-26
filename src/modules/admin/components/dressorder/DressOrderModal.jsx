@@ -7,10 +7,10 @@ import {
   X,
   Package,
   User,
-  Hash,
   Shirt,
   Calendar,
   CheckCircle,
+  ReceiptText,
 } from "lucide-react";
 
 const DressOrderModal = ({
@@ -78,7 +78,7 @@ const DressOrderModal = ({
                 </label>
 
                 <div className="flex items-center gap-2 mt-1">
-                  <Hash className="w-4 h-4 text-amber-600" />
+                  <ReceiptText className="w-4 h-4 text-amber-600" />
 
                   <span className="text-lg font-semibold text-gray-900">
                     {order?.order_number || "-"}

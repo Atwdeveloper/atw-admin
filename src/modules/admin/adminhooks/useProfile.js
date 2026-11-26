@@ -34,7 +34,6 @@ export const useProfile = () => {
     bank_name: "State Bank of India",
     account_number: "1234567890123456",
     ifsc_code: "SBIN0001234",
-    branch_name: "Main Branch, Mumbai",
     account_type: "savings",
     profile_picture: null,
     email_verified: true,

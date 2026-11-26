@@ -7,6 +7,7 @@ import Swal from "sweetalert2";
 import { getWorkerNotesAPI, addWorkerNoteAPI, deleteWorkerNoteAPI } from "../../../../api/adminV1/workerAPI";
 import { apiError } from "../../../../api/javaApi";
 import { formatDate } from "../../utils/workerUtils";
+import ActorName from "../ActorName";
 
 const NOTE_MAX = 2000;
 
@@ -144,8 +145,13 @@ const WorkerCommentsModal = ({ isOpen, onClose, workerId, workerName, canAdd, ca
                     <div key={item.id} className="bg-gray-50 rounded-xl p-4 border border-gray-200 flex gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-gray-800 whitespace-pre-wrap break-words">{item.note}</p>
-                        <p className="text-xs text-gray-400 mt-2">
-                          {item.createdBy} · {formatDate(item.createdAt, true)}
+                        <p className="text-xs text-gray-400 mt-2 flex items-center gap-1 flex-wrap">
+                          {item.createdBy && (
+                            <>
+                              <ActorName actor={item.createdBy} /> ·
+                            </>
+                          )}{" "}
+                          {formatDate(item.createdAt, true)}
                         </p>
                       </div>
                       {canDelete && (

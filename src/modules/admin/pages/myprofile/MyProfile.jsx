@@ -495,8 +495,7 @@ const hasBankData = (profile) => {
     profile.account_holder_name ||
     profile.account_number ||
     profile.ifsc_code ||
-    profile.bank_name ||
-    profile.branch_name
+    profile.bank_name
   );
 };
 

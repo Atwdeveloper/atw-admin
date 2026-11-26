@@ -795,6 +795,20 @@ const WorkerForm = ({ mode = "create", workerId }) => {
                 <FieldError message={errors.accountNumber} />
               </div>
               <div>
+                <label className="text-sm text-slate-600">Confirm Account Number</label>
+                <IconInput
+                  icon={CreditCard}
+                  inputMode="numeric"
+                  maxLength={18}
+                  placeholder="Re-enter account number"
+                  {...text("confirmAccountNumber", {
+                    onChange: (e) =>
+                      update({ confirmAccountNumber: e.target.value.replace(/\D/g, "").slice(0, 18) }),
+                  })}
+                />
+                <FieldError message={errors.confirmAccountNumber} />
+              </div>
+              <div>
                 <label className="text-sm text-slate-600">IFSC Code</label>
                 <div className="flex gap-2 items-center">
                   <div className="flex-1">

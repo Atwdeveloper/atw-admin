@@ -112,7 +112,10 @@ export const MultiFilter = ({ icon: Icon, placeholder, options, selected, onChan
 };
 
 // Single-choice dropdown in the filter panel (same look as Face Enroll's "All Status").
-export const SelectFilter = ({ options, value, onChange, width = "w-40" }) => {
+// Without `placeholder`, options[0] is the "all" choice. With it, nothing is
+// selected by default, the placeholder shows greyed out (it isn't an option),
+// and clicking the selected option again clears it.
+export const SelectFilter = ({ options, value, onChange, width = "w-40", placeholder }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -122,7 +125,9 @@ export const SelectFilter = ({ options, value, onChange, width = "w-40" }) => {
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
-  const label = options.find((o) => o.key === value)?.label || options[0].label;
+  const selected = options.find((o) => o.key === value);
+  const showPlaceholder = !!placeholder && !selected;
+  const label = selected?.label || placeholder || options[0].label;
   return (
     <div ref={ref} className={`relative ${width}`}>
       <button
@@ -130,7 +135,7 @@ export const SelectFilter = ({ options, value, onChange, width = "w-40" }) => {
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white"
       >
-        <span>{label}</span>
+        <span className={showPlaceholder ? "text-gray-400" : ""}>{label}</span>
         <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
       {open && (
@@ -139,7 +144,7 @@ export const SelectFilter = ({ options, value, onChange, width = "w-40" }) => {
             <div
               key={option.key || "all"}
               onClick={() => {
-                onChange(option.key);
+                onChange(placeholder && value === option.key ? "" : option.key);
                 setOpen(false);
               }}
               className={`flex items-center justify-between px-3 py-2 cursor-pointer text-sm hover:bg-gray-100 ${value === option.key ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-700"}`}

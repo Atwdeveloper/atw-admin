@@ -81,6 +81,7 @@ export const bulkChangeWorkerStatusAPI = (ids, status, reason) =>
   javaApi.post(`${BASE}/bulk-status`, { ids, status, reason: reason || undefined }).then(unwrap);
 
 // -> paged { content: [{ id, fromStatus, toStatus, reason, changedBy, changedAt }] }, newest first
+//    changedBy: { id, name, userType: "ADMIN" | "SYSTEM" | "COMPANY" } — render with <ActorName>
 export const getWorkerStatusHistoryAPI = (id, params = {}) =>
   javaApi.get(`${BASE}/${id}/status-history`, { params }).then(unwrap);
 
@@ -161,6 +162,7 @@ export const parseBankCheckResult = (data) => {
 
 // ---- Notes (append-only; read needs workers.view_comments, add needs workers.edit)
 // -> paged { content: [{ id, note, createdBy, createdAt }] }, newest first
+//    createdBy: { id, name, userType } — render with <ActorName>
 export const getWorkerNotesAPI = (id, params = {}) =>
   javaApi.get(`${BASE}/${id}/notes`, { params }).then(unwrap);
 export const addWorkerNoteAPI = (id, note) => javaApi.post(`${BASE}/${id}/notes`, { note }).then(unwrap);

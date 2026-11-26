@@ -16,6 +16,7 @@ import {
   Edit,
   ClipboardList,
   Trash2,
+  Briefcase,
 } from "lucide-react";
 import {
   containerVariants,
@@ -26,9 +27,13 @@ import { useSkillCategoryManagement } from "../../adminhooks/useSkillCategoryMan
 import { useAdminPermissions } from "../../../../common/hooks/useAdminPermissions";
 import Loader from "../../../../common/components/Loader";
 import SortableHeader from "../../../../common/components/SortableHeader";
+// The skill-category API returns designationCount and designations [{ id, name }].
+const designationCountOf = (skillCategory) =>
+  skillCategory?.designationCount ?? skillCategory?.designations?.length ?? 0;
 
 // ====================== VIEW MODAL ======================
 const SkillCategoryViewModal = ({ skillCategory, isOpen, onClose, onEdit }) => {
+  const designations = skillCategory?.designations || [];
   const renderStatus = () => {
     const isActive = skillCategory.status === "ACTIVE";
     return (
@@ -79,9 +84,6 @@ const SkillCategoryViewModal = ({ skillCategory, isOpen, onClose, onEdit }) => {
                       {skillCategory.name}
                     </p>
                     <div className="flex items-center gap-3 mt-1">
-                      <span className="text-sm text-slate-500 dark:text-slate-400">
-                        Code: {skillCategory.code || "-"}
-                      </span>
                       {renderStatus()}
                     </div>
                   </div>
@@ -114,10 +116,10 @@ const SkillCategoryViewModal = ({ skillCategory, isOpen, onClose, onEdit }) => {
                   </div>
                   <div className="flex flex-col gap-1">
                     <span className="text-sm text-slate-600 dark:text-slate-400">
-                      Code
+                      Designation Count
                     </span>
                     <span className="text-slate-900 dark:text-slate-100 font-medium">
-                      {skillCategory.code || "-"}
+                      {designationCountOf(skillCategory)}
                     </span>
                   </div>
                   <div className="flex flex-col gap-1">
@@ -129,6 +131,27 @@ const SkillCategoryViewModal = ({ skillCategory, isOpen, onClose, onEdit }) => {
                     </span>
                   </div>
                 </div>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-6 mt-4">
+                <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4 flex items-center">
+                  <Briefcase className="text-purple-500" />
+                  <span className="ml-2">Designations</span>
+                </h4>
+                {designations.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {designations.map((d) => (
+                      <span
+                        key={d.id}
+                        className="px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-xs font-medium"
+                      >
+                        {d.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No designations assigned.</p>
+                )}
               </div>
             </div>
 
@@ -170,7 +193,6 @@ const SkillCategoryListing = () => {
     skillCategories,
     loading,
     page,
-    pageSize,
     totalPages,
     totalRecords,
     filters,
@@ -485,9 +507,6 @@ const SkillCategoryListing = () => {
                     className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
                 </th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                  S.No.
-                </th>
                 <SortableHeader
                   label="Name"
                   sortKey="name"
@@ -495,7 +514,7 @@ const SkillCategoryListing = () => {
                   onSort={handleSort}
                 />
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
-                  Code
+                  Designation Count
                 </th>
                 <SortableHeader
                   label="Status"
@@ -511,7 +530,7 @@ const SkillCategoryListing = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-8">
+                  <td colSpan="5" className="text-center py-8">
                     <div className="flex justify-center">
                       <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
@@ -519,7 +538,7 @@ const SkillCategoryListing = () => {
                 </tr>
               ) : skillCategories.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-10 text-gray-500">
+                  <td colSpan="5" className="text-center py-10 text-gray-500">
                     No skill categories found.
                   </td>
                 </tr>
@@ -547,14 +566,11 @@ const SkillCategoryListing = () => {
                         className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {(page - 1) * pageSize + index + 1}
-                    </td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
                       {skillCategory.name}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">
-                      {skillCategory.code || "-"}
+                      {designationCountOf(skillCategory)}
                     </td>
                     <td className="px-6 py-4">
                       <span

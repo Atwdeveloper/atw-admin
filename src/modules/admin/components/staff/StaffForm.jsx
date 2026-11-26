@@ -471,6 +471,18 @@ const StaffForm = ({ mode = "create", staffId }) => {
                       transform: (v) => v.replace(/\D/g, ""),
                     })}
                   </Field>
+                  <Field
+                    label="Confirm Account Number"
+                    error={errors.confirmAccountNumber}
+                    icon={Lock}
+                  >
+                    {text("confirmAccountNumber", {
+                      icon: Lock,
+                      placeholder: "Re-enter account number",
+                      maxLength: 18,
+                      transform: (v) => v.replace(/\D/g, ""),
+                    })}
+                  </Field>
                   <Field label="IFSC Code" error={errors.ifscCode} icon={Hash}>
                     {text("ifscCode", {
                       icon: Hash,
@@ -478,9 +490,6 @@ const StaffForm = ({ mode = "create", staffId }) => {
                       maxLength: 11,
                       transform: (v) => v.toUpperCase(),
                     })}
-                  </Field>
-                  <Field label="Branch Name" error={errors.branchName} icon={MapPin}>
-                    {text("branchName", { icon: MapPin, placeholder: "Branch", maxLength: 150 })}
                   </Field>
                 </div>
               </Card>
